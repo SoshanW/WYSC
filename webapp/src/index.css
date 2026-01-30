@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-950 text-slate-100;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+.gradient-bg {
+  background: radial-gradient(1200px circle at top right, rgba(123, 92, 255, 0.25), transparent 55%),
+    radial-gradient(800px circle at 20% 20%, rgba(107, 114, 128, 0.25), transparent 60%);
+}
