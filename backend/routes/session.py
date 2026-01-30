@@ -292,12 +292,47 @@ def choose_session_type():
                 }
             }), 200
 
-        # invite_friend / challenge_random — stub for now
+        if stype == SessionType.INVITE_FRIEND:
+            # Generate challenges for the inviter to pick from before creating invite
+            profile_resp = (
+                supabase.table("profiles")
+                .select("age, weight")
+                .eq("user_id", g.user_id)
+                .execute()
+            )
+            profile = profile_resp.data[0] if profile_resp.data else {}
+
+            try:
+                challenges = llm_service.generate_challenges(
+                    calories=session.get("calories", 300),
+                    user_age=profile.get("age"),
+                    user_weight=profile.get("weight"),
+                )
+            except Exception as llm_err:
+                return jsonify({"error": f"LLM service error: {llm_err}"}), 502
+
+            return jsonify({
+                "data": {
+                    "session_id": session_id,
+                    "session_type": stype.value,
+                    "challenges": challenges,
+                    "message": "Select a challenge, then create an invite via POST /invite/create.",
+                }
+            }), 200
+
+        if stype == SessionType.CHALLENGE_RANDOM:
+            return jsonify({
+                "data": {
+                    "session_id": session_id,
+                    "session_type": stype.value,
+                    "message": "Session type set. Join the matchmaking queue via POST /match/queue.",
+                }
+            }), 200
+
         return jsonify({
             "data": {
                 "session_id": session_id,
                 "session_type": stype.value,
-                "message": f"{stype.value} flow coming soon.",
             }
         }), 200
 

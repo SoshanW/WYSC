@@ -22,6 +22,8 @@ backend/
 │   ├── auth.py                   # Signup, login, logout, me
 │   ├── session.py                # Craving submission, option selection, session type
 │   ├── challenge.py              # Challenge lifecycle (select, start, complete)
+│   ├── invite.py                 # Invite a friend (create, view, respond, status)
+│   ├── match.py                  # Challenge a random player (queue, status, cancel)
 │   └── user.py                   # Profile, history
 ├── services/
 │   ├── llm_service.py            # OpenAI wrapper (options, calories, challenges)
@@ -29,9 +31,10 @@ backend/
 ├── middleware/
 │   └── auth_middleware.py        # @require_auth decorator
 ├── models/
-│   └── enums.py                  # SessionType, ChallengeStatus enums
+│   └── enums.py                  # SessionType, ChallengeStatus, InvitationStatus, MatchStatus, QueueStatus
 ├── migrations/
-│   └── 001_create_tables.sql     # Full database schema for Supabase
+│   ├── 001_create_tables.sql     # Core database schema
+│   └── 002_invite_and_match.sql  # Invitations, matchmaking queue, matches tables
 └── rag/
     └── rag_engine.py             # RAG engine (not used in current flow)
 ```
@@ -68,7 +71,9 @@ GOOGLE_PLACES_API_KEY=your-google-places-key
 
 ### 3. Run database migration
 
-Open your **Supabase Dashboard > SQL Editor**, paste the contents of `migrations/001_create_tables.sql`, and run it. This creates:
+Open your **Supabase Dashboard > SQL Editor**, paste and run each migration file in order:
+
+**Migration 1** — `migrations/001_create_tables.sql`:
 
 | Table | Purpose |
 |-------|---------|
@@ -78,8 +83,16 @@ Open your **Supabase Dashboard > SQL Editor**, paste the contents of `migrations
 | `ranks` | Pre-seeded rank tiers (Beginner through Diamond) |
 | `user_preferences` | Per-user craving history for personalization |
 
-It also sets up:
-- A trigger that auto-creates a profile row on signup
+**Migration 2** — `migrations/002_invite_and_match.sql`:
+
+| Table | Purpose |
+|-------|---------|
+| `invitations` | Friend invite tokens, status tracking, expiry |
+| `matchmaking_queue` | Users waiting to be matched by calorie range |
+| `matches` | Paired random matches with shared challenge, winner tracking |
+
+Both migrations set up:
+- A trigger that auto-creates a profile row on signup (migration 1)
 - Row Level Security policies so users can only access their own data
 
 ### 4. Start the server
@@ -115,7 +128,24 @@ The API runs at `http://localhost:5000`. Swagger docs are at `http://localhost:5
 |--------|-------|-------------|
 | POST | `/challenge/select` | Pick a challenge, creates it with 24h expiry |
 | POST | `/challenge/start` | Start a pending challenge |
-| POST | `/challenge/complete` | Report completion %, get rating + points + rank |
+| POST | `/challenge/complete` | Report completion %, get rating + points + rank (1.5x bonus for match winners) |
+
+### Invite a Friend
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/invite/create` | Yes | Create an invite with a chosen challenge (5-min expiry token) |
+| GET | `/invite/<token>` | No | View invite details (public link for the friend) |
+| POST | `/invite/respond` | Yes | Accept or decline an invite |
+| GET | `/invite/status/<invitation_id>` | Yes | Poll invite status (pending/accepted/declined/expired) |
+
+### Challenge a Random Player
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/match/queue` | Yes | Join matchmaking queue; instant match if opponent found within +/-50 calories |
+| GET | `/match/status/<queue_id>` | Yes | Poll queue status (waiting/matched/expired) |
+| POST | `/match/cancel` | Yes | Cancel a waiting queue entry |
 
 ### User
 
@@ -133,7 +163,9 @@ The API runs at `http://localhost:5000`. Swagger docs are at `http://localhost:5
 | GET | `/health` | Health check |
 | GET | `/supabase/health` | Supabase connection check |
 
-## User Flow
+## User Flows
+
+### Common Steps (all session types)
 
 ```
 1. Sign up / Log in
@@ -149,21 +181,84 @@ The API runs at `http://localhost:5000`. Swagger docs are at `http://localhost:5
 5. LLM estimates calories (~350 kcal)
          |
 6. User chooses session type:
-   - Solo Challenge  --> generates 3 physical challenges
-   - Invite Friend   --> (coming soon)
-   - Challenge Random --> (coming soon)
-   - Skip            --> no points earned
-         |
-7. User picks and starts a challenge
-         |
-8. User reports completion (0-100%)
-         |
-9. System calculates rating + points:
-   - Rating > 3/10: points = (rating x calories) / 10
-   - Rating <= 3/10: points = -(calories / 10)
-         |
-10. Points update --> Rank assigned
+   - Solo Challenge   --> Path A
+   - Invite Friend    --> Path B
+   - Challenge Random --> Path C
+   - Skip             --> no points earned
 ```
+
+### Path A: Solo Challenge
+
+```
+6a. choose-type (session_type=solo_challenge) --> returns 3 challenges
+         |
+7a. Pick a challenge --> POST /challenge/select
+         |
+8a. Start it --> POST /challenge/start
+         |
+9a. Complete it (0-100%) --> POST /challenge/complete
+         |
+10a. Points awarded, rank updated
+```
+
+### Path B: Invite a Friend
+
+```
+6b. choose-type (session_type=invite_friend) --> returns 3 challenges
+         |
+7b. Inviter picks a challenge + creates invite --> POST /invite/create
+     Returns: invite_token, invite_link, challenge_id
+         |
+8b. Share the invite link with a friend
+     Friend opens: GET /invite/<token> (no auth, public)
+         |
+9b. Friend accepts: POST /invite/respond (action=accept)
+     System creates a session + challenge for the friend (same challenge)
+         |
+10b. Inviter polls: GET /invite/status/<invitation_id> to see "accepted"
+         |
+11b. Both users independently:
+     POST /challenge/start --> POST /challenge/complete
+         |
+12b. Points awarded to each user based on their own completion
+```
+
+### Path C: Challenge a Random Player
+
+```
+6c. choose-type (session_type=challenge_random) --> returns queue instructions
+         |
+7c. User joins queue: POST /match/queue
+         |
+    ┌─── If opponent found (calories within +/-50) ───┐
+    │  Instant match! Returns: match_id,               │
+    │  opponent_name, challenge, challenge_id           │
+    └──────────────────────────────────────────────────┘
+    ┌─── If no opponent yet ───────────────────────────┐
+    │  Returns: queue_id, "Waiting for opponent..."     │
+    │  Poll: GET /match/status/<queue_id>               │
+    │  Cancel: POST /match/cancel                       │
+    │  Auto-expires after 10 minutes                    │
+    └──────────────────────────────────────────────────┘
+         |
+8c. Once matched, both users independently:
+    POST /challenge/start --> POST /challenge/complete
+         |
+9c. Points awarded with match bonus:
+    - First to complete with higher rating: 1.5x points
+    - Other player: normal points
+    - Match marked completed + winner set when both finish
+```
+
+## Points Formula
+
+| Scenario | Formula |
+|----------|---------|
+| Rating > 3/10 (solo or invite) | `floor(rating * calories / 10)` |
+| Rating <= 3/10 | `-floor(calories / 10)` |
+| Random match winner (1.5x bonus) | `floor(base_points * 1.5)` |
+
+The **match winner** is the first player to complete with a higher completion rating. If both have completed, the one with the higher rating wins the bonus. Total points never go below 0.
 
 ## Rank System
 
@@ -182,59 +277,221 @@ The app learns from user behavior. The `user_preferences` table tracks what each
 
 ## Testing the Full Flow
 
+### Setup (all flows start here)
+
 ```bash
 # 1. Sign up
 curl -X POST http://localhost:5000/auth/signup \
   -H "Content-Type: application/json" \
   -d '{"email": "test@test.com", "password": "pass123", "name": "John"}'
-# Copy the access_token from the response
+# Save the access_token as TOKEN_A
 
 # 2. Set profile
 curl -X PUT http://localhost:5000/user/profile \
-  -H "Authorization: Bearer TOKEN" \
+  -H "Authorization: Bearer TOKEN_A" \
   -H "Content-Type: application/json" \
   -d '{"age": 25, "weight": 70}'
 
 # 3. Submit craving
 curl -X POST http://localhost:5000/session/crave \
-  -H "Authorization: Bearer TOKEN" \
+  -H "Authorization: Bearer TOKEN_A" \
   -H "Content-Type: application/json" \
   -d '{"crave_item": "crepe", "latitude": 6.9271, "longitude": 79.8612}'
+# Save session_id from response
 
-# 4. Select option (use session_id from step 3)
+# 4. Select option
 curl -X POST http://localhost:5000/session/select \
-  -H "Authorization: Bearer TOKEN" \
+  -H "Authorization: Bearer TOKEN_A" \
   -H "Content-Type: application/json" \
   -d '{"session_id": "SESSION_ID", "selected_option": "Chocolate crepe"}'
+```
 
+### Test A: Solo Challenge Flow
+
+```bash
 # 5. Choose solo challenge
 curl -X POST http://localhost:5000/session/choose-type \
-  -H "Authorization: Bearer TOKEN" \
+  -H "Authorization: Bearer TOKEN_A" \
   -H "Content-Type: application/json" \
   -d '{"session_id": "SESSION_ID", "session_type": "solo_challenge"}'
+# Returns 3 challenges — pick one
 
-# 6. Select a challenge (use one from step 5 response)
+# 6. Select a challenge
 curl -X POST http://localhost:5000/challenge/select \
-  -H "Authorization: Bearer TOKEN" \
+  -H "Authorization: Bearer TOKEN_A" \
   -H "Content-Type: application/json" \
   -d '{"session_id": "SESSION_ID", "challenge_description": "20-min brisk walk", "time_limit": 20}'
+# Save challenge_id
 
 # 7. Start it
 curl -X POST http://localhost:5000/challenge/start \
-  -H "Authorization: Bearer TOKEN" \
+  -H "Authorization: Bearer TOKEN_A" \
   -H "Content-Type: application/json" \
   -d '{"challenge_id": "CHALLENGE_ID"}'
 
 # 8. Complete it
 curl -X POST http://localhost:5000/challenge/complete \
-  -H "Authorization: Bearer TOKEN" \
+  -H "Authorization: Bearer TOKEN_A" \
   -H "Content-Type: application/json" \
   -d '{"challenge_id": "CHALLENGE_ID", "completion_percentage": 75}'
 
 # 9. Check profile + rank
 curl -X GET http://localhost:5000/user/profile \
-  -H "Authorization: Bearer TOKEN"
+  -H "Authorization: Bearer TOKEN_A"
 ```
+
+### Test B: Invite a Friend Flow
+
+Requires **two user accounts**. Complete the setup steps (1-4) for User A first.
+
+```bash
+# --- USER A (inviter) ---
+
+# 5. Choose invite_friend (returns 3 challenges to pick from)
+curl -X POST http://localhost:5000/session/choose-type \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID_A", "session_type": "invite_friend"}'
+# Pick one challenge from the response
+
+# 6. Create the invite
+curl -X POST http://localhost:5000/invite/create \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID_A", "challenge_description": "20-min brisk walk", "time_limit": 20}'
+# Save: invite_token, invitation_id, challenge_id (inviter's challenge)
+# Note: the invite expires in 5 minutes!
+
+# 7. (Optional) View the invite link — no auth needed
+curl -X GET http://localhost:5000/invite/INVITE_TOKEN
+
+# --- USER B (invitee) ---
+# Sign up a second user first, save token as TOKEN_B
+
+# 8. Accept the invite
+curl -X POST http://localhost:5000/invite/respond \
+  -H "Authorization: Bearer TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"invite_token": "INVITE_TOKEN", "action": "accept"}'
+# Save: session_id (invitee's session), challenge_id (invitee's challenge)
+
+# --- USER A polls for acceptance ---
+
+# 9. Check invite status
+curl -X GET http://localhost:5000/invite/status/INVITATION_ID \
+  -H "Authorization: Bearer TOKEN_A"
+# Should show: status=accepted, invitee_name
+
+# --- BOTH USERS complete their challenges independently ---
+
+# 10a. User A starts + completes
+curl -X POST http://localhost:5000/challenge/start \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "CHALLENGE_ID_A"}'
+
+curl -X POST http://localhost:5000/challenge/complete \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "CHALLENGE_ID_A", "completion_percentage": 80}'
+
+# 10b. User B starts + completes
+curl -X POST http://localhost:5000/challenge/start \
+  -H "Authorization: Bearer TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "CHALLENGE_ID_B"}'
+
+curl -X POST http://localhost:5000/challenge/complete \
+  -H "Authorization: Bearer TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "CHALLENGE_ID_B", "completion_percentage": 60}'
+```
+
+**Edge cases to test:**
+- Declining: `{"invite_token": "TOKEN", "action": "decline"}`
+- Self-invite: try accepting your own invite (should return error)
+- Expired invite: wait 5 minutes, then try to accept (should return error)
+- Double accept: accept the same invite twice (should return error)
+
+### Test C: Challenge a Random Player Flow
+
+Requires **two user accounts** with sessions that have similar calorie values (within +/-50).
+Complete the setup steps (1-4) for both users.
+
+```bash
+# --- USER A enters the queue ---
+
+# 5a. Choose challenge_random
+curl -X POST http://localhost:5000/session/choose-type \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID_A", "session_type": "challenge_random"}'
+
+# 6a. Join the matchmaking queue
+curl -X POST http://localhost:5000/match/queue \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID_A"}'
+# If no opponent yet: save queue_id, matched=false
+# If opponent already waiting: matched=true, save match_id + challenge_id
+
+# 7a. (If waiting) Poll for a match
+curl -X GET http://localhost:5000/match/status/QUEUE_ID_A \
+  -H "Authorization: Bearer TOKEN_A"
+
+# --- USER B enters the queue (triggers the match if calories are close) ---
+
+# 5b. Choose challenge_random
+curl -X POST http://localhost:5000/session/choose-type \
+  -H "Authorization: Bearer TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID_B", "session_type": "challenge_random"}'
+
+# 6b. Join the queue — should instantly match with User A
+curl -X POST http://localhost:5000/match/queue \
+  -H "Authorization: Bearer TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID_B"}'
+# Should return: matched=true, match_id, opponent_name, challenge, challenge_id
+
+# 7b. User A polls again and should now see "matched"
+curl -X GET http://localhost:5000/match/status/QUEUE_ID_A \
+  -H "Authorization: Bearer TOKEN_A"
+# Returns: status=matched, match_id, opponent_name, challenge_id
+
+# --- BOTH USERS complete their challenges ---
+
+# 8a. User A starts + completes (first to complete gets 1.5x if higher rating)
+curl -X POST http://localhost:5000/challenge/start \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "CHALLENGE_ID_A"}'
+
+curl -X POST http://localhost:5000/challenge/complete \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "CHALLENGE_ID_A", "completion_percentage": 90}'
+# Response includes: match_id, winner_bonus=true (if first + positive points)
+
+# 8b. User B starts + completes
+curl -X POST http://localhost:5000/challenge/start \
+  -H "Authorization: Bearer TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "CHALLENGE_ID_B"}'
+
+curl -X POST http://localhost:5000/challenge/complete \
+  -H "Authorization: Bearer TOKEN_B" \
+  -H "Content-Type: application/json" \
+  -d '{"challenge_id": "CHALLENGE_ID_B", "completion_percentage": 50}'
+# Response includes: match_id, winner_bonus=false
+# Match is now marked completed with winner_user_id set
+```
+
+**Edge cases to test:**
+- Cancel queue: `POST /match/cancel` with `{"queue_id": "QUEUE_ID"}` (only works while waiting)
+- Already in queue: try joining queue twice (should return error)
+- Queue timeout: wait 10 minutes without a match, then poll status (should show expired)
+- Calorie mismatch: two users with calories 200 apart won't match (stays waiting)
 
 ## Troubleshooting
 
@@ -246,3 +503,8 @@ curl -X GET http://localhost:5000/user/profile \
 | `Session not found` | Ensure the session belongs to the authenticated user |
 | SQL migration errors | Run the migration in Supabase SQL Editor, not locally |
 | `profiles` table already exists | The migration uses `IF NOT EXISTS` — safe to re-run |
+| `Invitation has expired` | Invites expire after 5 minutes — create a new one |
+| `You cannot accept your own invitation` | Log in as a different user to accept |
+| `You are already in the matchmaking queue` | Cancel your existing entry first via `POST /match/cancel` |
+| No match found | The other user's calories must be within +/-50 of yours |
+| `invitations` table missing | Run `migrations/002_invite_and_match.sql` in Supabase SQL Editor |

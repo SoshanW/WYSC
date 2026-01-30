@@ -254,11 +254,32 @@ def complete_challenge():
 
         calories = session.get("calories") or 300
 
-        # Calculate points
+        # Calculate base points
         if rating > 3:
             points = math.floor((rating * calories) / 10)
         else:
             points = -math.floor(calories / 10)
+
+        # Check if this challenge belongs to a random match
+        is_match = False
+        match_info = None
+        match_id = None
+
+        if session.get("session_type") == "challenge_random":
+            # Look up match by session_id
+            match_resp = (
+                supabase.table("matches")
+                .select("*")
+                .or_(
+                    f"session_id_1.eq.{session['session_id']},session_id_2.eq.{session['session_id']}"
+                )
+                .eq("status", "active")
+                .execute()
+            )
+            if match_resp.data:
+                is_match = True
+                match_info = match_resp.data[0]
+                match_id = match_info["match_id"]
 
         # Update challenge status
         supabase.table("challenges").update(
@@ -269,6 +290,64 @@ def complete_challenge():
         supabase.table("sessions").update(
             {"rating": rating}
         ).eq("session_id", session["session_id"]).execute()
+
+        # Apply match winner bonus if applicable
+        winner_bonus = False
+        if is_match and match_info:
+            # Determine opponent session
+            if match_info["session_id_1"] == session["session_id"]:
+                opponent_session_id = match_info["session_id_2"]
+                opponent_user_id = match_info["user2_id"]
+            else:
+                opponent_session_id = match_info["session_id_1"]
+                opponent_user_id = match_info["user1_id"]
+
+            # Check if opponent has completed their challenge
+            opp_challenge_resp = (
+                supabase.table("challenges")
+                .select("status, challenge_id")
+                .eq("session_id", opponent_session_id)
+                .execute()
+            )
+            opponent_completed = False
+            if opp_challenge_resp.data:
+                opponent_completed = opp_challenge_resp.data[0].get("status") == ChallengeStatus.COMPLETED.value
+
+            if not opponent_completed:
+                # First to complete — gets 1.5x bonus
+                if points > 0:
+                    points = math.floor(points * 1.5)
+                    winner_bonus = True
+            else:
+                # Opponent already completed — check opponent's rating
+                opp_session_resp = (
+                    supabase.table("sessions")
+                    .select("rating")
+                    .eq("session_id", opponent_session_id)
+                    .execute()
+                )
+                opp_rating = opp_session_resp.data[0].get("rating", 0) if opp_session_resp.data else 0
+
+                if rating > opp_rating and points > 0:
+                    # Current user has higher rating — they get the bonus
+                    points = math.floor(points * 1.5)
+                    winner_bonus = True
+
+            # If both have now completed, mark match as completed and set winner
+            if opponent_completed:
+                opp_session_resp = (
+                    supabase.table("sessions")
+                    .select("rating")
+                    .eq("session_id", opponent_session_id)
+                    .execute()
+                )
+                opp_rating = opp_session_resp.data[0].get("rating", 0) if opp_session_resp.data else 0
+
+                winner_id = g.user_id if rating >= opp_rating else opponent_user_id
+                supabase.table("matches").update({
+                    "status": "completed",
+                    "winner_user_id": winner_id,
+                }).eq("match_id", match_id).execute()
 
         # Update user total points (floor at 0)
         profile_resp = (
@@ -299,15 +378,19 @@ def complete_challenge():
         )
         rank = rank_resp.data[0]["rank_type"] if rank_resp.data else "Beginner"
 
-        return jsonify({
-            "data": {
-                "rating": rating,
-                "completion_percentage": completion,
-                "points_earned": points,
-                "total_points": new_total,
-                "rank": rank,
-            }
-        }), 200
+        result = {
+            "rating": rating,
+            "completion_percentage": completion,
+            "points_earned": points,
+            "total_points": new_total,
+            "rank": rank,
+        }
+
+        if is_match:
+            result["match_id"] = match_id
+            result["winner_bonus"] = winner_bonus
+
+        return jsonify({"data": result}), 200
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
