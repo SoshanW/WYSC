@@ -150,3 +150,56 @@ def generate_challenges(
         {"description": f"Do a light jog to burn ~{calories} kcal", "time_limit": 20},
         {"description": f"Bodyweight exercises (squats, push-ups, lunges) to burn ~{calories} kcal", "time_limit": 15},
     ]
+
+
+# ------------------------------------------------------------------
+# 4. Generate healthy substitute suggestions for a craving
+# ------------------------------------------------------------------
+
+def generate_healthy_substitute(
+    crave_item: str,
+    calories: int,
+    exclude_items: list[str] | None = None,
+) -> list[dict]:
+    """Return 2-3 healthier food alternatives that give a similar vibe.
+
+    Each suggestion is a dict with keys:
+      suggestion (str), description (str), estimated_calories (int), why (str).
+    """
+    system_prompt = (
+        "You are a healthy eating assistant. The user is craving something "
+        "unhealthy. Suggest 2-3 healthier alternatives that give a similar "
+        "taste, texture, or vibe — so the user still feels satisfied.\n\n"
+        "For each suggestion include:\n"
+        '  "suggestion": the healthier food item name,\n'
+        '  "description": what it is and how to get/make it,\n'
+        '  "estimated_calories": approximate calorie count (integer),\n'
+        '  "why": one sentence on why it satisfies the same craving.\n\n'
+        "Return ONLY a JSON array of 2-3 objects. No markdown, no explanation."
+    )
+
+    user_msg = f"Craving: {crave_item}\nOriginal estimated calories: {calories} kcal"
+
+    if exclude_items:
+        user_msg += (
+            "\n\nDo NOT suggest any of the following (already rejected by user):\n"
+            + "\n".join(f"- {item}" for item in exclude_items)
+        )
+
+    raw = _chat(system_prompt, user_msg)
+    try:
+        suggestions = _parse_json(raw)
+        if isinstance(suggestions, list) and len(suggestions) >= 1:
+            return suggestions[:3]
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Fallback
+    return [
+        {
+            "suggestion": f"Grilled {crave_item} alternative",
+            "description": f"A lighter, grilled version of {crave_item}",
+            "estimated_calories": max(100, calories // 2),
+            "why": "Similar flavour with fewer calories from healthier cooking method.",
+        },
+    ]
