@@ -15,10 +15,11 @@ def require_auth(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return jsonify({"error": "Missing or invalid Authorization header."}), 401
+        if not auth_header:
+            return jsonify({"error": "Missing Authorization header. Use: Bearer <token>"}), 401
 
-        token = auth_header[7:]
+        # Accept both "Bearer <token>" and raw "<token>"
+        token = auth_header[7:] if auth_header.startswith("Bearer ") else auth_header
         try:
             response = get_supabase_client().auth.get_user(token)
             g.user_id = response.user.id

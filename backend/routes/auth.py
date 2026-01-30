@@ -32,28 +32,6 @@ def signup():
     responses:
       201:
         description: Account created successfully
-        schema:
-          type: object
-          properties:
-            data:
-              type: object
-              properties:
-                user:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    email:
-                      type: string
-                    full_name:
-                      type: string
-                session:
-                  type: object
-                  properties:
-                    access_token:
-                      type: string
-                    refresh_token:
-                      type: string
       400:
         description: Missing fields or signup failed
     """
@@ -78,19 +56,39 @@ def signup():
             }
         )
 
-        return jsonify({
-            "data": {
-                "user": {
-                    "id": response.user.id,
-                    "email": response.user.email,
-                    "full_name": name,
-                },
-                "session": {
-                    "access_token": response.session.access_token,
-                    "refresh_token": response.session.refresh_token,
-                } if response.session else None,
+        result = {
+            "user": {
+                "id": response.user.id,
+                "email": response.user.email,
+                "full_name": name,
+            },
+        }
+
+        if response.session:
+            result["session"] = {
+                "access_token": response.session.access_token,
+                "refresh_token": response.session.refresh_token,
             }
-        }), 201
+        else:
+            # Supabase has email confirmation enabled.
+            # Auto-login the user so they get a token immediately.
+            try:
+                login_resp = get_supabase_client().auth.sign_in_with_password(
+                    {"email": email, "password": password}
+                )
+                result["session"] = {
+                    "access_token": login_resp.session.access_token,
+                    "refresh_token": login_resp.session.refresh_token,
+                }
+            except Exception:
+                result["session"] = None
+                result["message"] = (
+                    "Account created but email confirmation may be required. "
+                    "Check your email or disable 'Confirm email' in Supabase "
+                    "Dashboard > Authentication > Providers > Email."
+                )
+
+        return jsonify({"data": result}), 201
 
     except Exception as exc:
         return jsonify({"error": str(exc)}), 400
@@ -121,28 +119,6 @@ def login():
     responses:
       200:
         description: Login successful, returns user and session tokens
-        schema:
-          type: object
-          properties:
-            data:
-              type: object
-              properties:
-                user:
-                  type: object
-                  properties:
-                    id:
-                      type: string
-                    email:
-                      type: string
-                    full_name:
-                      type: string
-                session:
-                  type: object
-                  properties:
-                    access_token:
-                      type: string
-                    refresh_token:
-                      type: string
       401:
         description: Invalid credentials
     """
@@ -195,10 +171,14 @@ def logout():
         return jsonify({"error": "Missing Authorization header."}), 401
 
     try:
-        get_supabase_client().auth.sign_out(token)
+        # Validate the token is real before confirming logout
+        get_supabase_client().auth.get_user(token)
+        # For a stateless API the client discards the token.
+        # Supabase JWTs expire naturally; there is no server-side
+        # revocation with the anon key.
         return jsonify({"data": {"message": "Logged out successfully."}}), 200
     except Exception as exc:
-        return jsonify({"error": str(exc)}), 400
+        return jsonify({"error": str(exc)}), 401
 
 
 @auth_bp.route("/me", methods=["GET"])
@@ -212,20 +192,6 @@ def me():
     responses:
       200:
         description: Current user details
-        schema:
-          type: object
-          properties:
-            data:
-              type: object
-              properties:
-                id:
-                  type: string
-                email:
-                  type: string
-                full_name:
-                  type: string
-                created_at:
-                  type: string
       401:
         description: Missing or invalid token
     """
@@ -242,7 +208,7 @@ def me():
                 "id": user.id,
                 "email": user.email,
                 "full_name": user.user_metadata.get("full_name", ""),
-                "created_at": user.created_at,
+                "created_at": str(user.created_at) if user.created_at else None,
             }
         }), 200
 
@@ -253,6 +219,7 @@ def me():
 def _extract_token() -> str | None:
     """Pull the Bearer token from the Authorization header."""
     auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer "):
-        return auth_header[7:]
-    return None
+    if not auth_header:
+        return None
+    # Accept both "Bearer <token>" and raw "<token>"
+    return auth_header[7:] if auth_header.startswith("Bearer ") else auth_header

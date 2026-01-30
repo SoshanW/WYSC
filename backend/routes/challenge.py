@@ -48,6 +48,8 @@ def select_challenge():
         description: Missing fields
       404:
         description: Session not found
+      500:
+        description: Server error
     """
     body = request.get_json(silent=True) or {}
     session_id = body.get("session_id")
@@ -57,43 +59,47 @@ def select_challenge():
     if not session_id or not challenge_desc or time_limit is None:
         return jsonify({"error": "session_id, challenge_description and time_limit are required."}), 400
 
-    supabase = get_supabase_client()
+    try:
+        supabase = get_supabase_client()
 
-    # Verify session belongs to user
-    sess_resp = (
-        supabase.table("sessions")
-        .select("session_id")
-        .eq("session_id", session_id)
-        .eq("user_id", g.user_id)
-        .execute()
-    )
-    if not sess_resp.data:
-        return jsonify({"error": "Session not found."}), 404
+        # Verify session belongs to user
+        sess_resp = (
+            supabase.table("sessions")
+            .select("session_id")
+            .eq("session_id", session_id)
+            .eq("user_id", g.user_id)
+            .execute()
+        )
+        if not sess_resp.data:
+            return jsonify({"error": "Session not found."}), 404
 
-    expiry = (datetime.now(timezone.utc) + timedelta(hours=CHALLENGE_EXPIRY_HOURS)).isoformat()
+        expiry = (datetime.now(timezone.utc) + timedelta(hours=CHALLENGE_EXPIRY_HOURS)).isoformat()
 
-    challenge_resp = (
-        supabase.table("challenges")
-        .insert({
-            "session_id": session_id,
-            "challenge": challenge_desc,
-            "time_limit": int(time_limit),
-            "expiry_time": expiry,
-            "status": ChallengeStatus.PENDING.value,
-        })
-        .execute()
-    )
-    challenge = challenge_resp.data[0]
+        challenge_resp = (
+            supabase.table("challenges")
+            .insert({
+                "session_id": session_id,
+                "challenge": challenge_desc,
+                "time_limit": int(time_limit),
+                "expiry_time": expiry,
+                "status": ChallengeStatus.PENDING.value,
+            })
+            .execute()
+        )
+        challenge = challenge_resp.data[0]
 
-    return jsonify({
-        "data": {
-            "challenge_id": challenge["challenge_id"],
-            "challenge": challenge["challenge"],
-            "time_limit": challenge["time_limit"],
-            "expiry_time": challenge["expiry_time"],
-            "status": challenge["status"],
-        }
-    }), 201
+        return jsonify({
+            "data": {
+                "challenge_id": challenge["challenge_id"],
+                "challenge": challenge["challenge"],
+                "time_limit": challenge["time_limit"],
+                "expiry_time": challenge["expiry_time"],
+                "status": challenge["status"],
+            }
+        }), 201
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @challenge_bp.route("/start", methods=["POST"])
@@ -123,6 +129,8 @@ def start_challenge():
         description: Challenge cannot be started
       404:
         description: Challenge not found
+      500:
+        description: Server error
     """
     body = request.get_json(silent=True) or {}
     challenge_id = body.get("challenge_id")
@@ -130,44 +138,48 @@ def start_challenge():
     if not challenge_id:
         return jsonify({"error": "challenge_id is required."}), 400
 
-    supabase = get_supabase_client()
+    try:
+        supabase = get_supabase_client()
 
-    # Fetch challenge and verify ownership via session
-    ch_resp = (
-        supabase.table("challenges")
-        .select("*, sessions(user_id)")
-        .eq("challenge_id", challenge_id)
-        .execute()
-    )
-    if not ch_resp.data:
-        return jsonify({"error": "Challenge not found."}), 404
+        # Fetch challenge and verify ownership via session
+        ch_resp = (
+            supabase.table("challenges")
+            .select("*, sessions(user_id)")
+            .eq("challenge_id", challenge_id)
+            .execute()
+        )
+        if not ch_resp.data:
+            return jsonify({"error": "Challenge not found."}), 404
 
-    challenge = ch_resp.data[0]
-    if challenge.get("sessions", {}).get("user_id") != g.user_id:
-        return jsonify({"error": "Challenge not found."}), 404
+        challenge = ch_resp.data[0]
+        if challenge.get("sessions", {}).get("user_id") != g.user_id:
+            return jsonify({"error": "Challenge not found."}), 404
 
-    if challenge["status"] != ChallengeStatus.PENDING.value:
-        return jsonify({"error": f"Challenge is already {challenge['status']}."}), 400
+        if challenge["status"] != ChallengeStatus.PENDING.value:
+            return jsonify({"error": f"Challenge is already {challenge['status']}."}), 400
 
-    # Check expiry
-    expiry = datetime.fromisoformat(challenge["expiry_time"])
-    if datetime.now(timezone.utc) > expiry:
+        # Check expiry
+        expiry = datetime.fromisoformat(challenge["expiry_time"])
+        if datetime.now(timezone.utc) > expiry:
+            supabase.table("challenges").update(
+                {"status": ChallengeStatus.EXPIRED.value}
+            ).eq("challenge_id", challenge_id).execute()
+            return jsonify({"error": "Challenge has expired."}), 400
+
         supabase.table("challenges").update(
-            {"status": ChallengeStatus.EXPIRED.value}
+            {"status": ChallengeStatus.ACTIVE.value}
         ).eq("challenge_id", challenge_id).execute()
-        return jsonify({"error": "Challenge has expired."}), 400
 
-    supabase.table("challenges").update(
-        {"status": ChallengeStatus.ACTIVE.value}
-    ).eq("challenge_id", challenge_id).execute()
+        return jsonify({
+            "data": {
+                "challenge_id": challenge_id,
+                "status": ChallengeStatus.ACTIVE.value,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }
+        }), 200
 
-    return jsonify({
-        "data": {
-            "challenge_id": challenge_id,
-            "status": ChallengeStatus.ACTIVE.value,
-            "started_at": datetime.now(timezone.utc).isoformat(),
-        }
-    }), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @challenge_bp.route("/complete", methods=["POST"])
@@ -203,6 +215,8 @@ def complete_challenge():
         description: Invalid input or challenge state
       404:
         description: Challenge not found
+      500:
+        description: Server error
     """
     body = request.get_json(silent=True) or {}
     challenge_id = body.get("challenge_id")
@@ -213,88 +227,90 @@ def complete_challenge():
 
     completion = max(0, min(100, int(completion)))
 
-    supabase = get_supabase_client()
+    try:
+        supabase = get_supabase_client()
 
-    # Fetch challenge with session data
-    ch_resp = (
-        supabase.table("challenges")
-        .select("*, sessions(session_id, user_id, calories, crave_item)")
-        .eq("challenge_id", challenge_id)
-        .execute()
-    )
-    if not ch_resp.data:
-        return jsonify({"error": "Challenge not found."}), 404
+        # Fetch challenge with session data
+        ch_resp = (
+            supabase.table("challenges")
+            .select("*, sessions(session_id, user_id, calories, crave_item)")
+            .eq("challenge_id", challenge_id)
+            .execute()
+        )
+        if not ch_resp.data:
+            return jsonify({"error": "Challenge not found."}), 404
 
-    challenge = ch_resp.data[0]
-    session = challenge.get("sessions", {})
+        challenge = ch_resp.data[0]
+        session = challenge.get("sessions", {})
 
-    if session.get("user_id") != g.user_id:
-        return jsonify({"error": "Challenge not found."}), 404
+        if session.get("user_id") != g.user_id:
+            return jsonify({"error": "Challenge not found."}), 404
 
-    if challenge["status"] != ChallengeStatus.ACTIVE.value:
-        return jsonify({"error": f"Challenge is {challenge['status']}, not active."}), 400
+        if challenge["status"] != ChallengeStatus.ACTIVE.value:
+            return jsonify({"error": f"Challenge is {challenge['status']}, not active."}), 400
 
-    # Derive rating (1-10) from completion percentage
-    rating = max(1, min(10, math.ceil(completion / 10)))
+        # Derive rating (1-10) from completion percentage
+        rating = max(1, min(10, math.ceil(completion / 10)))
 
-    calories = session.get("calories") or 300
+        calories = session.get("calories") or 300
 
-    # Calculate points
-    if rating > 3:
-        points = math.floor((rating * calories) / 10)
-    else:
-        points = -math.floor(calories / 10)
+        # Calculate points
+        if rating > 3:
+            points = math.floor((rating * calories) / 10)
+        else:
+            points = -math.floor(calories / 10)
 
-    # Update challenge status
-    supabase.table("challenges").update(
-        {"status": ChallengeStatus.COMPLETED.value}
-    ).eq("challenge_id", challenge_id).execute()
+        # Update challenge status
+        supabase.table("challenges").update(
+            {"status": ChallengeStatus.COMPLETED.value}
+        ).eq("challenge_id", challenge_id).execute()
 
-    # Update session rating
-    supabase.table("sessions").update(
-        {"rating": rating}
-    ).eq("session_id", session["session_id"]).execute()
+        # Update session rating
+        supabase.table("sessions").update(
+            {"rating": rating}
+        ).eq("session_id", session["session_id"]).execute()
 
-    # Update user total points (floor at 0)
-    profile_resp = (
-        supabase.table("profiles")
-        .select("total_points")
-        .eq("user_id", g.user_id)
-        .execute()
-    )
-    current_points = profile_resp.data[0]["total_points"] if profile_resp.data else 0
-    new_total = max(0, current_points + points)
+        # Update user total points (floor at 0)
+        profile_resp = (
+            supabase.table("profiles")
+            .select("total_points")
+            .eq("user_id", g.user_id)
+            .execute()
+        )
+        current_points = profile_resp.data[0]["total_points"] if profile_resp.data else 0
+        new_total = max(0, current_points + points)
 
-    supabase.table("profiles").update(
-        {"total_points": new_total}
-    ).eq("user_id", g.user_id).execute()
+        supabase.table("profiles").update(
+            {"total_points": new_total}
+        ).eq("user_id", g.user_id).execute()
 
-    # Upsert user preference
-    crave_item = session.get("crave_item", "")
-    category = crave_item.split(" ")[-1].lower() if crave_item else "unknown"
-    # Try a simpler approach: use the original crave category from the session
-    # The crave_item at this point is the selected specific option
-    _upsert_preference(supabase, g.user_id, category, crave_item)
+        # Upsert user preference
+        crave_item = session.get("crave_item", "")
+        category = crave_item.split(" ")[-1].lower() if crave_item else "unknown"
+        _upsert_preference(supabase, g.user_id, category, crave_item)
 
-    # Look up rank
-    rank_resp = (
-        supabase.table("ranks")
-        .select("rank_type")
-        .lte("min_points", new_total)
-        .gte("max_points", new_total)
-        .execute()
-    )
-    rank = rank_resp.data[0]["rank_type"] if rank_resp.data else "Beginner"
+        # Look up rank
+        rank_resp = (
+            supabase.table("ranks")
+            .select("rank_type")
+            .lte("min_points", new_total)
+            .gte("max_points", new_total)
+            .execute()
+        )
+        rank = rank_resp.data[0]["rank_type"] if rank_resp.data else "Beginner"
 
-    return jsonify({
-        "data": {
-            "rating": rating,
-            "completion_percentage": completion,
-            "points_earned": points,
-            "total_points": new_total,
-            "rank": rank,
-        }
-    }), 200
+        return jsonify({
+            "data": {
+                "rating": rating,
+                "completion_percentage": completion,
+                "points_earned": points,
+                "total_points": new_total,
+                "rank": rank,
+            }
+        }), 200
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 def _upsert_preference(supabase, user_id: str, category: str, item: str):

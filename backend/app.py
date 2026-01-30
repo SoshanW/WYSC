@@ -37,7 +37,7 @@ swagger_template = {
             "type": "apiKey",
             "name": "Authorization",
             "in": "header",
-            "description": "Enter: **Bearer &lt;token&gt;**",
+            "description": "Paste your token with the Bearer prefix. Example: Bearer eyJhbGciOi...",
         }
     },
 }

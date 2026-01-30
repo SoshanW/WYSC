@@ -44,6 +44,8 @@ def submit_crave():
         description: Craving options generated
       400:
         description: Missing required fields
+      500:
+        description: Server error
     """
     body = request.get_json(silent=True) or {}
     crave_item = body.get("crave_item")
@@ -53,49 +55,56 @@ def submit_crave():
     if not crave_item or lat is None or lng is None:
         return jsonify({"error": "crave_item, latitude and longitude are required."}), 400
 
-    supabase = get_supabase_client()
-    user_id = g.user_id
+    try:
+        supabase = get_supabase_client()
+        user_id = g.user_id
 
-    # Check user preferences for this category
-    prefs_resp = (
-        supabase.table("user_preferences")
-        .select("*")
-        .eq("user_id", user_id)
-        .eq("category", crave_item.lower())
-        .execute()
-    )
-    preferences = prefs_resp.data or []
-    is_personalized = len(preferences) >= MATURITY_THRESHOLD
+        # Check user preferences for this category
+        prefs_resp = (
+            supabase.table("user_preferences")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("category", crave_item.lower())
+            .execute()
+        )
+        preferences = prefs_resp.data or []
+        is_personalized = len(preferences) >= MATURITY_THRESHOLD
 
-    # Find nearby places
-    places = places_service.search_nearby_places(crave_item, lat, lng)
+        # Find nearby places
+        places = places_service.search_nearby_places(crave_item, lat, lng)
 
-    # Generate specific options via LLM
-    options = llm_service.generate_craving_options(
-        crave_item,
-        places,
-        user_preferences=preferences if is_personalized else None,
-    )
+        # Generate specific options via LLM
+        try:
+            options = llm_service.generate_craving_options(
+                crave_item,
+                places,
+                user_preferences=preferences if is_personalized else None,
+            )
+        except Exception as llm_err:
+            return jsonify({"error": f"LLM service error: {llm_err}"}), 502
 
-    # Create session record
-    session_resp = (
-        supabase.table("sessions")
-        .insert({
-            "user_id": user_id,
-            "crave_item": crave_item,
-            "location_options": {"places": places, "options": options},
-        })
-        .execute()
-    )
-    session = session_resp.data[0]
+        # Create session record
+        session_resp = (
+            supabase.table("sessions")
+            .insert({
+                "user_id": user_id,
+                "crave_item": crave_item,
+                "location_options": {"places": places, "options": options},
+            })
+            .execute()
+        )
+        session = session_resp.data[0]
 
-    return jsonify({
-        "data": {
-            "session_id": session["session_id"],
-            "options": options,
-            "personalized": is_personalized,
-        }
-    }), 200
+        return jsonify({
+            "data": {
+                "session_id": session["session_id"],
+                "options": options,
+                "personalized": is_personalized,
+            }
+        }), 200
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @session_bp.route("/select", methods=["POST"])
@@ -129,6 +138,8 @@ def select_option():
         description: Missing fields
       404:
         description: Session not found
+      500:
+        description: Server error
     """
     body = request.get_json(silent=True) or {}
     session_id = body.get("session_id")
@@ -137,36 +148,43 @@ def select_option():
     if not session_id or not selected_option:
         return jsonify({"error": "session_id and selected_option are required."}), 400
 
-    supabase = get_supabase_client()
+    try:
+        supabase = get_supabase_client()
 
-    # Verify session belongs to user
-    sess_resp = (
-        supabase.table("sessions")
-        .select("*")
-        .eq("session_id", session_id)
-        .eq("user_id", g.user_id)
-        .execute()
-    )
-    if not sess_resp.data:
-        return jsonify({"error": "Session not found."}), 404
+        # Verify session belongs to user
+        sess_resp = (
+            supabase.table("sessions")
+            .select("*")
+            .eq("session_id", session_id)
+            .eq("user_id", g.user_id)
+            .execute()
+        )
+        if not sess_resp.data:
+            return jsonify({"error": "Session not found."}), 404
 
-    # Estimate calories via LLM
-    calories = llm_service.estimate_calories(selected_option)
+        # Estimate calories via LLM
+        try:
+            calories = llm_service.estimate_calories(selected_option)
+        except Exception as llm_err:
+            return jsonify({"error": f"LLM service error: {llm_err}"}), 502
 
-    # Update session
-    supabase.table("sessions").update({
-        "crave_item": selected_option,
-        "calories": calories,
-    }).eq("session_id", session_id).execute()
+        # Update session
+        supabase.table("sessions").update({
+            "crave_item": selected_option,
+            "calories": calories,
+        }).eq("session_id", session_id).execute()
 
-    return jsonify({
-        "data": {
-            "session_id": session_id,
-            "selected_item": selected_option,
-            "estimated_calories": calories,
-            "session_types": [t.value for t in SessionType],
-        }
-    }), 200
+        return jsonify({
+            "data": {
+                "session_id": session_id,
+                "selected_item": selected_option,
+                "estimated_calories": calories,
+                "session_types": [t.value for t in SessionType],
+            }
+        }), 200
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @session_bp.route("/choose-type", methods=["POST"])
@@ -200,6 +218,8 @@ def choose_session_type():
         description: Invalid input
       404:
         description: Session not found
+      500:
+        description: Server error
     """
     body = request.get_json(silent=True) or {}
     session_id = body.get("session_id")
@@ -215,63 +235,71 @@ def choose_session_type():
         valid = [t.value for t in SessionType]
         return jsonify({"error": f"Invalid session_type. Must be one of: {valid}"}), 400
 
-    supabase = get_supabase_client()
+    try:
+        supabase = get_supabase_client()
 
-    # Verify session + get calories
-    sess_resp = (
-        supabase.table("sessions")
-        .select("*")
-        .eq("session_id", session_id)
-        .eq("user_id", g.user_id)
-        .execute()
-    )
-    if not sess_resp.data:
-        return jsonify({"error": "Session not found."}), 404
-
-    session = sess_resp.data[0]
-
-    # Update session type
-    supabase.table("sessions").update({
-        "session_type": stype.value,
-    }).eq("session_id", session_id).execute()
-
-    if stype == SessionType.SOLO_CHALLENGE:
-        # Fetch user profile for personalised challenges
-        profile_resp = (
-            supabase.table("profiles")
-            .select("age, weight")
+        # Verify session + get calories
+        sess_resp = (
+            supabase.table("sessions")
+            .select("*")
+            .eq("session_id", session_id)
             .eq("user_id", g.user_id)
             .execute()
         )
-        profile = profile_resp.data[0] if profile_resp.data else {}
+        if not sess_resp.data:
+            return jsonify({"error": "Session not found."}), 404
 
-        challenges = llm_service.generate_challenges(
-            calories=session.get("calories", 300),
-            user_age=profile.get("age"),
-            user_weight=profile.get("weight"),
-        )
-        return jsonify({
-            "data": {
-                "session_id": session_id,
-                "session_type": stype.value,
-                "challenges": challenges,
-            }
-        }), 200
+        session = sess_resp.data[0]
 
-    if stype == SessionType.SKIP:
-        return jsonify({
-            "data": {
-                "session_id": session_id,
-                "session_type": stype.value,
-                "message": "Session skipped. No points earned.",
-            }
-        }), 200
-
-    # invite_friend / challenge_random — stub for now
-    return jsonify({
-        "data": {
-            "session_id": session_id,
+        # Update session type
+        supabase.table("sessions").update({
             "session_type": stype.value,
-            "message": f"{stype.value} flow coming soon.",
-        }
-    }), 200
+        }).eq("session_id", session_id).execute()
+
+        if stype == SessionType.SOLO_CHALLENGE:
+            # Fetch user profile for personalised challenges
+            profile_resp = (
+                supabase.table("profiles")
+                .select("age, weight")
+                .eq("user_id", g.user_id)
+                .execute()
+            )
+            profile = profile_resp.data[0] if profile_resp.data else {}
+
+            try:
+                challenges = llm_service.generate_challenges(
+                    calories=session.get("calories", 300),
+                    user_age=profile.get("age"),
+                    user_weight=profile.get("weight"),
+                )
+            except Exception as llm_err:
+                return jsonify({"error": f"LLM service error: {llm_err}"}), 502
+
+            return jsonify({
+                "data": {
+                    "session_id": session_id,
+                    "session_type": stype.value,
+                    "challenges": challenges,
+                }
+            }), 200
+
+        if stype == SessionType.SKIP:
+            return jsonify({
+                "data": {
+                    "session_id": session_id,
+                    "session_type": stype.value,
+                    "message": "Session skipped. No points earned.",
+                }
+            }), 200
+
+        # invite_friend / challenge_random — stub for now
+        return jsonify({
+            "data": {
+                "session_id": session_id,
+                "session_type": stype.value,
+                "message": f"{stype.value} flow coming soon.",
+            }
+        }), 200
+
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
