@@ -4,6 +4,9 @@ from flasgger import Swagger
 
 from config import get_supabase_client, SUPABASE_TABLE
 from routes.auth import auth_bp
+from routes.session import session_bp
+from routes.challenge import challenge_bp
+from routes.user import user_bp
 
 app = Flask(__name__)
 CORS(app)
@@ -43,6 +46,9 @@ Swagger(app, config=swagger_config, template=swagger_template)
 
 # Register blueprints
 app.register_blueprint(auth_bp, url_prefix="/auth")
+app.register_blueprint(session_bp, url_prefix="/session")
+app.register_blueprint(challenge_bp, url_prefix="/challenge")
+app.register_blueprint(user_bp, url_prefix="/user")
 
 
 @app.route("/", methods=["GET"])
