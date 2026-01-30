@@ -1,9 +1,12 @@
+import asyncio
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flasgger import Swagger
 
 from config import get_supabase_client, SUPABASE_TABLE
 from routes.auth import auth_bp
+from services.ai_service import ask_copilot
 
 app = Flask(__name__)
 CORS(app)
@@ -171,6 +174,45 @@ def supabase_health():
         return jsonify({"status": "connected"}), 200
     except Exception as exc:
         return jsonify({"status": "error", "details": str(exc)}), 500
+
+
+@app.route("/copilot/prompt", methods=["POST"])
+def copilot_prompt():
+    """Send a prompt to Copilot and return the response
+    ---
+    tags:
+      - Copilot
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            prompt:
+              type: string
+              description: Prompt to send to Copilot
+          required:
+            - prompt
+    responses:
+      200:
+        description: Copilot response
+      400:
+        description: Invalid JSON body or missing prompt
+      500:
+        description: Copilot SDK or CLI error
+    """
+    payload = request.get_json(silent=True) or {}
+    prompt = payload.get("prompt")
+
+    if not isinstance(prompt, str) or not prompt.strip():
+        return jsonify({"error": "Request body must include a non-empty prompt."}), 400
+
+    try:
+      response_text = asyncio.run(ask_copilot(prompt.strip()))
+      return jsonify({"response": response_text}), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 if __name__ == "__main__":
