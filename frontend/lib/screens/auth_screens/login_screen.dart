@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'package:frontend/main_navigation.dart';
 
 // Main Login Screen
 class LoginScreen extends StatefulWidget {
@@ -63,8 +64,11 @@ class _LoginScreenState extends State<LoginScreen>
 
       setState(() => _isLoading = false);
 
-      // Navigate to onboarding or home
-      // Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => OnboardingFlow()));
+      // Navigate to main app
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+      );
     }
   }
 
@@ -76,8 +80,11 @@ class _LoginScreenState extends State<LoginScreen>
 
     setState(() => _isLoading = false);
 
-    // Navigate to onboarding or home
-    // Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => OnboardingFlow()));
+    // Navigate to main app
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+    );
   }
 
   @override
