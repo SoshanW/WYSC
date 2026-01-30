@@ -26,7 +26,7 @@ backend/
 │   ├── match.py                  # Challenge a random player (queue, status, cancel)
 │   └── user.py                   # Profile, history
 ├── services/
-│   ├── llm_service.py            # OpenAI wrapper (options, calories, challenges)
+│   ├── llm_service.py            # OpenAI wrapper (options, calories, challenges, healthy subs)
 │   └── places_service.py         # Google Places nearby search
 ├── middleware/
 │   └── auth_middleware.py        # @require_auth decorator
@@ -34,7 +34,8 @@ backend/
 │   └── enums.py                  # SessionType, ChallengeStatus, InvitationStatus, MatchStatus, QueueStatus
 ├── migrations/
 │   ├── 001_create_tables.sql     # Core database schema
-│   └── 002_invite_and_match.sql  # Invitations, matchmaking queue, matches tables
+│   ├── 002_invite_and_match.sql  # Invitations, matchmaking queue, matches tables
+│   └── 003_add_healthy_route.sql # Adds healthy_route to session_type constraint
 └── rag/
     └── rag_engine.py             # RAG engine (not used in current flow)
 ```
@@ -91,7 +92,11 @@ Open your **Supabase Dashboard > SQL Editor**, paste and run each migration file
 | `matchmaking_queue` | Users waiting to be matched by calorie range |
 | `matches` | Paired random matches with shared challenge, winner tracking |
 
-Both migrations set up:
+**Migration 3** — `migrations/003_add_healthy_route.sql`:
+
+Updates the `sessions` table CHECK constraint to allow `healthy_route` as a session type.
+
+All migrations set up:
 - A trigger that auto-creates a profile row on signup (migration 1)
 - Row Level Security policies so users can only access their own data
 
@@ -120,7 +125,24 @@ The API runs at `http://localhost:5000`. Swagger docs are at `http://localhost:5
 |--------|-------|-------------|
 | POST | `/session/crave` | Submit a craving + location, get specific options |
 | POST | `/session/select` | Pick an option, get calorie estimate |
-| POST | `/session/choose-type` | Choose session type, get challenges (if solo) |
+| POST | `/session/choose-type` | Choose session type (`solo_challenge`, `invite_friend`, `challenge_random`, `healthy_route`, `skip`) |
+
+### Healthy Route
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/session/healthy/regenerate` | Get different healthy substitute suggestions (max 3 retries) |
+| POST | `/session/healthy/accept` | Accept a healthy substitute — awards points and logs it |
+
+### Regenerate (AI Suggestions)
+
+All AI suggestion steps support regeneration (max 3 retries per step):
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/session/crave/regenerate` | Get different craving options from the same nearby places |
+| POST | `/session/challenges/regenerate` | Get different challenge suggestions (solo/invite sessions) |
+| POST | `/session/healthy/regenerate` | Get different healthy substitute suggestions |
 
 ### Challenge Flow
 
@@ -184,7 +206,12 @@ The API runs at `http://localhost:5000`. Swagger docs are at `http://localhost:5
    - Solo Challenge   --> Path A
    - Invite Friend    --> Path B
    - Challenge Random --> Path C
-   - Skip             --> no points earned
+   - Healthy Route    --> Path D
+   - Skip             --> Path E (willpower bonus)
+
+Note: At any AI suggestion step (craving options, challenges,
+healthy subs), user can call the /regenerate endpoint up to 3 times
+to get different suggestions.
 ```
 
 ### Path A: Solo Challenge
@@ -250,6 +277,31 @@ The API runs at `http://localhost:5000`. Swagger docs are at `http://localhost:5
     - Match marked completed + winner set when both finish
 ```
 
+### Path D: Healthy Route
+
+```
+6d. choose-type (session_type=healthy_route) --> returns 2-3 healthy substitute suggestions
+         |
+    Don't like the suggestions?
+    POST /session/healthy/regenerate (up to 3 times)
+    Previously shown items are excluded so you get fresh ideas.
+         |
+7d. Accept a suggestion: POST /session/healthy/accept
+    { session_id, selected_suggestion: "Greek yogurt with honey" }
+         |
+8d. Points awarded: floor(calories / 10)
+    Choice logged in preferences for personalization
+```
+
+### Path E: Skip (Willpower)
+
+```
+6e. choose-type (session_type=skip)
+         |
+7e. Immediately awards 50 willpower bonus points
+    No challenge required — you resisted the craving entirely!
+```
+
 ## Points Formula
 
 | Scenario | Formula |
@@ -257,6 +309,8 @@ The API runs at `http://localhost:5000`. Swagger docs are at `http://localhost:5
 | Rating > 3/10 (solo or invite) | `floor(rating * calories / 10)` |
 | Rating <= 3/10 | `-floor(calories / 10)` |
 | Random match winner (1.5x bonus) | `floor(base_points * 1.5)` |
+| Healthy route | `floor(calories / 10)` |
+| Skip (willpower) | flat `50` points |
 
 The **match winner** is the first player to complete with a higher completion rating. If both have completed, the one with the higher rating wins the bonus. Total points never go below 0.
 
@@ -493,6 +547,92 @@ curl -X POST http://localhost:5000/challenge/complete \
 - Queue timeout: wait 10 minutes without a match, then poll status (should show expired)
 - Calorie mismatch: two users with calories 200 apart won't match (stays waiting)
 
+### Test D: Healthy Route Flow
+
+Complete the setup steps (1-4) first.
+
+```bash
+# 5. Choose healthy_route — returns 2-3 healthy substitute suggestions
+curl -X POST http://localhost:5000/session/choose-type \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID", "session_type": "healthy_route"}'
+# Returns: suggestions array + regenerations_remaining: 3
+
+# 6. (Optional) Don't like the suggestions? Regenerate (up to 3 times)
+curl -X POST http://localhost:5000/session/healthy/regenerate \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID"}'
+# Returns: new suggestions + regenerations_remaining: 2
+# Previously shown suggestions are excluded automatically
+
+# 7. Accept a suggestion
+curl -X POST http://localhost:5000/session/healthy/accept \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID", "selected_suggestion": "Greek yogurt with honey and berries"}'
+# Returns: points_earned, total_points, rank
+
+# 8. Check profile
+curl -X GET http://localhost:5000/user/profile \
+  -H "Authorization: Bearer TOKEN_A"
+```
+
+**Edge cases to test:**
+- Regenerate 4 times: should get error "Maximum 3 regenerations reached"
+- Call `/healthy/accept` on a non-healthy session: should get error
+- Call `/healthy/regenerate` on a non-healthy session: should get error
+
+### Test E: Skip (Willpower) Flow
+
+Complete the setup steps (1-4) first.
+
+```bash
+# 5. Choose skip — immediately awards 50 willpower points
+curl -X POST http://localhost:5000/session/choose-type \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID", "session_type": "skip"}'
+# Returns: points_earned: 50, total_points, rank, message: "Willpower! You resisted the craving."
+
+# 6. Check profile to confirm points
+curl -X GET http://localhost:5000/user/profile \
+  -H "Authorization: Bearer TOKEN_A"
+```
+
+### Test F: Regenerate AI Suggestions
+
+The regenerate feature works at every AI suggestion step. Each step allows up to 3 retries.
+
+```bash
+# --- Regenerate craving options (after step 3 in setup) ---
+curl -X POST http://localhost:5000/session/crave/regenerate \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID"}'
+# Returns: new options array + regenerations_remaining
+
+# --- Regenerate challenges (after choosing solo_challenge or invite_friend) ---
+curl -X POST http://localhost:5000/session/challenges/regenerate \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID"}'
+# Returns: new challenges array + regenerations_remaining
+
+# --- Regenerate healthy substitutes (after choosing healthy_route) ---
+curl -X POST http://localhost:5000/session/healthy/regenerate \
+  -H "Authorization: Bearer TOKEN_A" \
+  -H "Content-Type: application/json" \
+  -d '{"session_id": "SESSION_ID"}'
+# Returns: new suggestions array + regenerations_remaining
+```
+
+**Edge cases to test:**
+- Call regenerate 4 times on any step: should get "Maximum 3 regenerations reached"
+- Call challenge regenerate on a healthy_route session: should get error
+- Call crave regenerate with wrong session_id: should get "Session not found"
+
 ## Troubleshooting
 
 | Issue | Fix |
@@ -508,3 +648,6 @@ curl -X POST http://localhost:5000/challenge/complete \
 | `You are already in the matchmaking queue` | Cancel your existing entry first via `POST /match/cancel` |
 | No match found | The other user's calories must be within +/-50 of yours |
 | `invitations` table missing | Run `migrations/002_invite_and_match.sql` in Supabase SQL Editor |
+| `Maximum 3 regenerations reached` | You've used all retries for this step — pick from the current suggestions |
+| `This endpoint is only for healthy_route sessions` | You called a `/healthy/` endpoint on a non-healthy session |
+| `healthy_route` rejected by DB | Run `migrations/003_add_healthy_route.sql` to update the CHECK constraint |
