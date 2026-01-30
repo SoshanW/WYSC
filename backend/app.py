@@ -8,6 +8,8 @@ from routes.session import session_bp
 from routes.challenge import challenge_bp
 from routes.user import user_bp
 from routes.db import db_bp
+from routes.invite import invite_bp
+from routes.match import match_bp
 
 app = Flask(__name__)
 CORS(app)
@@ -51,6 +53,8 @@ app.register_blueprint(session_bp, url_prefix="/session")
 app.register_blueprint(challenge_bp, url_prefix="/challenge")
 app.register_blueprint(user_bp, url_prefix="/user")
 app.register_blueprint(db_bp, url_prefix="/db")
+app.register_blueprint(invite_bp, url_prefix="/invite")
+app.register_blueprint(match_bp, url_prefix="/match")
 
 
 @app.route("/", methods=["GET"])
