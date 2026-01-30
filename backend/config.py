@@ -8,6 +8,8 @@ from supabase import Client, create_client
 load_dotenv()
 
 SUPABASE_TABLE = os.getenv("SUPABASE_TABLE", "profiles")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY")
 
 
 def _load_supabase_credentials() -> Tuple[str, str]:
