@@ -125,6 +125,60 @@ The API runs at `http://localhost:5000`. Swagger docs are at `http://localhost:5
 | PUT | `/user/profile` | Update age, height, weight |
 | GET | `/user/history` | Get past sessions with challenges |
 
+### CRUD (Database Entities)
+
+> All routes under `/db/*` require `Authorization: Bearer <token>` unless noted.
+
+#### Profiles
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/db/profiles` | List current user's profile (1 row) |
+| GET | `/db/profiles/<user_id>` | Get profile by user_id (must match current user) |
+| POST | `/db/profiles` | Create profile for current user |
+| PUT/PATCH | `/db/profiles/<user_id>` | Update profile fields |
+| DELETE | `/db/profiles/<user_id>` | Delete profile |
+
+#### Sessions
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/db/sessions` | List current user's sessions |
+| GET | `/db/sessions/<session_id>` | Get session by id |
+| POST | `/db/sessions` | Create session for current user |
+| PUT/PATCH | `/db/sessions/<session_id>` | Update session fields |
+| DELETE | `/db/sessions/<session_id>` | Delete session |
+
+#### Challenges
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/db/challenges` | List challenges (optionally filter by session_id) |
+| GET | `/db/challenges/<challenge_id>` | Get challenge by id |
+| POST | `/db/challenges` | Create challenge (requires session_id) |
+| PUT/PATCH | `/db/challenges/<challenge_id>` | Update challenge fields |
+| DELETE | `/db/challenges/<challenge_id>` | Delete challenge |
+
+#### Ranks
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/db/ranks` | List ranks (public) |
+| GET | `/db/ranks/<rank_id>` | Get rank by id (public) |
+| POST | `/db/ranks` | Create rank (auth required) |
+| PUT/PATCH | `/db/ranks/<rank_id>` | Update rank (auth required) |
+| DELETE | `/db/ranks/<rank_id>` | Delete rank (auth required) |
+
+#### User Preferences
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/db/preferences` | List current user's preferences |
+| GET | `/db/preferences/<preference_id>` | Get preference by id |
+| POST | `/db/preferences` | Create preference for current user |
+| PUT/PATCH | `/db/preferences/<preference_id>` | Update preference |
+| DELETE | `/db/preferences/<preference_id>` | Delete preference |
+
 ### General
 
 | Method | Route | Description |

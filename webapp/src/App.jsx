@@ -8,7 +8,7 @@ const initialMessages = [
   {
     role: "assistant",
     content:
-      "Hi! I'm your CraveBalance guide. Tell me what you're craving and share your location to get started."
+      "Hi! I'm your CraveBalance AI. What are you craving today?"
   }
 ];
 
@@ -27,6 +27,17 @@ function MessageBubble({ role, content }) {
   );
 }
 
+function LoadingDots() {
+  return (
+    <div className="flex items-center gap-2 rounded-2xl bg-slate-900/70 px-4 py-3 text-sm text-slate-200">
+      <span className="h-2 w-2 animate-bounce rounded-full bg-brand-200" />
+      <span className="h-2 w-2 animate-bounce rounded-full bg-brand-200 [animation-delay:120ms]" />
+      <span className="h-2 w-2 animate-bounce rounded-full bg-brand-200 [animation-delay:240ms]" />
+      <span className="text-xs text-slate-400">Thinking...</span>
+    </div>
+  );
+}
+
 export default function App() {
   const [token, setToken] = useState("");
   const [authMode, setAuthMode] = useState("login");
@@ -34,23 +45,23 @@ export default function App() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [authError, setAuthError] = useState(null);
-  const [craveItem, setCraveItem] = useState("");
-  const [latitude, setLatitude] = useState("6.9271");
-  const [longitude, setLongitude] = useState("79.8612");
   const [messages, setMessages] = useState(initialMessages);
+  const [chatInput, setChatInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [stage, setStage] = useState("awaiting_crave");
+  const [pendingCrave, setPendingCrave] = useState("");
+  const [latitude, setLatitude] = useState(null);
+  const [longitude, setLongitude] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [options, setOptions] = useState([]);
   const [selectedOption, setSelectedOption] = useState("");
   const [estimatedCalories, setEstimatedCalories] = useState(null);
   const [sessionTypes, setSessionTypes] = useState([]);
   const [challenges, setChallenges] = useState([]);
+  const [createdChallenge, setCreatedChallenge] = useState(null);
   const [challengeId, setChallengeId] = useState(null);
+  const [completionInput, setCompletionInput] = useState("75");
   const [error, setError] = useState(null);
-
-  const canSubmitCrave = useMemo(() => {
-    return token.trim() && craveItem.trim() && latitude && longitude && !loading;
-  }, [token, craveItem, latitude, longitude, loading]);
 
   const headers = useMemo(() => {
     if (!token.trim()) {
@@ -65,6 +76,45 @@ export default function App() {
   const pushMessage = (role, content) => {
     setMessages((prev) => [...prev, { role, content }]);
   };
+
+  const resetFlow = () => {
+    setMessages(initialMessages);
+    setChatInput("");
+    setStage("awaiting_crave");
+    setPendingCrave("");
+    setLatitude(null);
+    setLongitude(null);
+    setSessionId(null);
+    setOptions([]);
+    setSelectedOption("");
+    setEstimatedCalories(null);
+    setSessionTypes([]);
+    setChallenges([]);
+    setCreatedChallenge(null);
+    setChallengeId(null);
+    setCompletionInput("75");
+    setError(null);
+  };
+
+  const requestBrowserLocation = () =>
+    new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("Geolocation is not supported by this browser."));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          reject(error);
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    });
 
   const handleAuthSubmit = async () => {
     setLoading(true);
@@ -92,14 +142,7 @@ export default function App() {
       }
 
       setToken(accessToken);
-      setMessages(initialMessages);
-      setCraveItem("");
-      setOptions([]);
-      setSelectedOption("");
-      setEstimatedCalories(null);
-      setSessionTypes([]);
-      setChallenges([]);
-      setChallengeId(null);
+      resetFlow();
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -112,20 +155,13 @@ export default function App() {
     setEmail("");
     setPassword("");
     setName("");
-    setMessages(initialMessages);
-    setSessionId(null);
-    setOptions([]);
-    setSelectedOption("");
-    setEstimatedCalories(null);
-    setSessionTypes([]);
-    setChallenges([]);
-    setChallengeId(null);
+    resetFlow();
   };
 
-  const handleCraveSubmit = async () => {
+  const handleCraveSubmit = async ({ craveItem, lat, lng }) => {
     setLoading(true);
     setError(null);
-    pushMessage("user", `Craving: ${craveItem} (lat: ${latitude}, lng: ${longitude})`);
+    pushMessage("assistant", "Looking for nearby options...");
 
     try {
       const response = await fetch(`${API_URL}/session/crave`, {
@@ -133,8 +169,8 @@ export default function App() {
         headers,
         body: JSON.stringify({
           crave_item: craveItem,
-          latitude: Number(latitude),
-          longitude: Number(longitude)
+          latitude: Number(lat),
+          longitude: Number(lng)
         })
       });
 
@@ -148,8 +184,9 @@ export default function App() {
 
       pushMessage(
         "assistant",
-        `Here are ${data.data.options?.length || 0} options. Pick one to estimate calories.`
+        `Here are ${data.data.options?.length || 0} options. Reply with the option number or click one below.`
       );
+      setStage("awaiting_option");
     } catch (err) {
       setError(err.message);
       pushMessage("assistant", `Error: ${err.message}`);
@@ -163,7 +200,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     setSelectedOption(option);
-    pushMessage("user", `Select option: ${option}`);
+    pushMessage("assistant", "Estimating calories...");
 
     try {
       const response = await fetch(`${API_URL}/session/select`, {
@@ -187,6 +224,7 @@ export default function App() {
         "assistant",
         `Estimated calories: ${data.data.estimated_calories}. Choose a session type.`
       );
+      setStage("awaiting_session_type");
     } catch (err) {
       setError(err.message);
       pushMessage("assistant", `Error: ${err.message}`);
@@ -199,7 +237,7 @@ export default function App() {
     if (!sessionId) return;
     setLoading(true);
     setError(null);
-    pushMessage("user", `Session type: ${type}`);
+    pushMessage("assistant", "Generating challenges...");
 
     try {
       const response = await fetch(`${API_URL}/session/choose-type`, {
@@ -217,9 +255,14 @@ export default function App() {
 
       if (type === "solo_challenge") {
         setChallenges(data.data.challenges || []);
-        pushMessage("assistant", "Pick a challenge to continue.");
+        pushMessage(
+          "assistant",
+          "Pick a challenge to create. Reply with the number or click one below."
+        );
+        setStage("awaiting_challenge");
       } else {
         pushMessage("assistant", data.data.message || "Session updated.");
+        setStage("awaiting_challenge");
       }
     } catch (err) {
       setError(err.message);
@@ -233,7 +276,7 @@ export default function App() {
     if (!sessionId) return;
     setLoading(true);
     setError(null);
-    pushMessage("user", `Challenge: ${challenge.description}`);
+    pushMessage("assistant", "Creating your challenge...");
 
     try {
       const response = await fetch(`${API_URL}/challenge/select`, {
@@ -251,10 +294,18 @@ export default function App() {
       }
 
       setChallengeId(data.data.challenge_id);
+      setCreatedChallenge({
+        challenge_id: data.data.challenge_id,
+        challenge: data.data.challenge,
+        time_limit: data.data.time_limit,
+        expiry_time: data.data.expiry_time,
+        status: data.data.status
+      });
       pushMessage(
         "assistant",
-        `Challenge created. Time limit: ${data.data.time_limit} minutes. Start when ready.`
+        `Challenge created. Time limit: ${data.data.time_limit} minutes. You can start it below.`
       );
+      setStage("challenge_created");
     } catch (err) {
       setError(err.message);
       pushMessage("assistant", `Error: ${err.message}`);
@@ -317,6 +368,123 @@ export default function App() {
       pushMessage("assistant", `Error: ${err.message}`);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const optionLabel = (option) => `${option.option} from ${option.store}`;
+
+  const parseLocation = (text) => {
+    const parts = text.split(",").map((value) => value.trim());
+    if (parts.length !== 2) return null;
+    const lat = Number(parts[0]);
+    const lng = Number(parts[1]);
+    if (Number.isNaN(lat) || Number.isNaN(lng)) return null;
+    return { lat, lng };
+  };
+
+  const matchByIndex = (text, list) => {
+    const num = Number(text);
+    if (Number.isNaN(num)) return null;
+    const index = num - 1;
+    if (index < 0 || index >= list.length) return null;
+    return list[index];
+  };
+
+  const handleSend = async () => {
+    const trimmed = chatInput.trim();
+    if (!trimmed || loading) return;
+    setChatInput("");
+    pushMessage("user", trimmed);
+
+    if (stage === "awaiting_crave") {
+      setPendingCrave(trimmed);
+      pushMessage("assistant", "Requesting your location...");
+      setStage("awaiting_location");
+      try {
+        setLoading(true);
+        const location = await requestBrowserLocation();
+        setLatitude(location.lat);
+        setLongitude(location.lng);
+        pushMessage(
+          "assistant",
+          `Got it. Using lat ${location.lat.toFixed(4)}, lng ${location.lng.toFixed(4)}.`
+        );
+        await handleCraveSubmit({
+          craveItem: trimmed,
+          lat: location.lat,
+          lng: location.lng
+        });
+      } catch (err) {
+        pushMessage(
+          "assistant",
+          "Location permission denied or unavailable. Please type your location as `lat, lng`."
+        );
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (stage === "awaiting_location") {
+      const parsed = parseLocation(trimmed);
+      if (!parsed) {
+        pushMessage(
+          "assistant",
+          "Please send your location in `lat, lng` format (example: `6.9271, 79.8612`)."
+        );
+        return;
+      }
+      setLatitude(parsed.lat);
+      setLongitude(parsed.lng);
+      await handleCraveSubmit({ craveItem: pendingCrave, lat: parsed.lat, lng: parsed.lng });
+      return;
+    }
+
+    if (stage === "awaiting_option") {
+      const matched = matchByIndex(trimmed, options);
+      const choice = matched ? optionLabel(matched) : trimmed;
+      const option = matched || options.find((item) => {
+        const label = optionLabel(item).toLowerCase();
+        return label.includes(trimmed.toLowerCase());
+      });
+      if (!option) {
+        pushMessage("assistant", "Please pick one of the listed options.");
+        return;
+      }
+      await handleOptionSelect(choice);
+      return;
+    }
+
+    if (stage === "awaiting_session_type") {
+      const normalized = trimmed.toLowerCase().replace(/\s+/g, "_");
+      const selected = sessionTypes.find((type) => type === normalized);
+      if (!selected) {
+        pushMessage("assistant", "Please choose a valid session type from the list.");
+        return;
+      }
+      await handleSessionType(selected);
+      return;
+    }
+
+    if (stage === "awaiting_challenge") {
+      const matched = matchByIndex(trimmed, challenges);
+      const challenge = matched || challenges.find((item) => {
+        const label = item.description.toLowerCase();
+        return label.includes(trimmed.toLowerCase());
+      });
+      if (!challenge) {
+        pushMessage("assistant", "Please pick a challenge from the list.");
+        return;
+      }
+      await handleChallengeSelect(challenge);
+      return;
+    }
+
+    if (stage === "challenge_created") {
+      pushMessage(
+        "assistant",
+        "Your challenge is ready. Use the controls below to start or complete it."
+      );
     }
   };
 
@@ -418,68 +586,33 @@ export default function App() {
             </div>
           </section>
         ) : (
-          <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="grid gap-8 lg:grid-cols-[1.3fr_0.7fr]">
             <section className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-950/60 p-6 shadow-soft">
-              <div className="flex flex-col gap-3">
-                <label className="text-xs uppercase text-slate-500">Craving</label>
-                <input
-                  value={craveItem}
-                  onChange={(event) => setCraveItem(event.target.value)}
-                  placeholder="e.g. Chicken Cheese Kottu"
-                  className="w-full rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-200 outline-none focus:border-brand-500"
-                />
+              <p className="text-xs uppercase text-slate-500">Conversation</p>
+              <div className="flex max-h-[520px] flex-col gap-3 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+                {messages.map((message, index) => (
+                  <MessageBubble key={`${message.role}-${index}`} {...message} />
+                ))}
+                {loading && <LoadingDots />}
               </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="flex flex-col gap-3">
-                  <label className="text-xs uppercase text-slate-500">Latitude</label>
-                  <input
-                    value={latitude}
-                    onChange={(event) => setLatitude(event.target.value)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-200 outline-none focus:border-brand-500"
-                  />
-                </div>
-                <div className="flex flex-col gap-3">
-                  <label className="text-xs uppercase text-slate-500">Longitude</label>
-                  <input
-                    value={longitude}
-                    onChange={(event) => setLongitude(event.target.value)}
-                    className="w-full rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-200 outline-none focus:border-brand-500"
-                  />
-                </div>
-              </div>
-
-              <Button size="lg" disabled={!canSubmitCrave} onClick={handleCraveSubmit}>
-                {loading ? "Working..." : "Start craving flow"}
-              </Button>
 
               {error && (
                 <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
                   {error}
                 </div>
               )}
-            </section>
 
-            <section className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-950/60 p-6 shadow-soft">
-              <p className="text-xs uppercase text-slate-500">Conversation</p>
-              <div className="flex max-h-[420px] flex-col gap-3 overflow-y-auto rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
-                {messages.map((message, index) => (
-                  <MessageBubble key={`${message.role}-${index}`} {...message} />
-                ))}
-              </div>
-
-              {options.length > 0 && (
+              {stage === "awaiting_option" && options.length > 0 && (
                 <div className="space-y-3">
                   <p className="text-xs uppercase text-slate-500">Options</p>
                   <div className="grid gap-3">
-                    {options.map((option) => (
+                    {options.map((option, index) => (
                       <button
                         key={`${option.option}-${option.store}`}
-                        onClick={() =>
-                          handleOptionSelect(`${option.option} from ${option.store}`)
-                        }
+                        onClick={() => handleOptionSelect(optionLabel(option))}
                         className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-left transition hover:border-brand-500"
                       >
+                        <p className="text-xs text-slate-500">Option {index + 1}</p>
                         <p className="text-sm font-semibold text-white">{option.option}</p>
                         <p className="text-xs text-slate-400">{option.store}</p>
                         <p className="mt-2 text-xs text-slate-400">{option.description}</p>
@@ -489,7 +622,7 @@ export default function App() {
                 </div>
               )}
 
-              {selectedOption && estimatedCalories !== null && sessionTypes.length > 0 && (
+              {stage === "awaiting_session_type" && sessionTypes.length > 0 && (
                 <div className="space-y-3">
                   <p className="text-xs uppercase text-slate-500">Session Types</p>
                   <div className="flex flex-wrap gap-2">
@@ -507,16 +640,17 @@ export default function App() {
                 </div>
               )}
 
-              {challenges.length > 0 && (
+              {stage === "awaiting_challenge" && challenges.length > 0 && (
                 <div className="space-y-3">
                   <p className="text-xs uppercase text-slate-500">Challenges</p>
                   <div className="grid gap-3">
-                    {challenges.map((challenge) => (
+                    {challenges.map((challenge, index) => (
                       <button
                         key={challenge.description}
                         onClick={() => handleChallengeSelect(challenge)}
                         className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4 text-left transition hover:border-brand-500"
                       >
+                        <p className="text-xs text-slate-500">Challenge {index + 1}</p>
                         <p className="text-sm font-semibold text-white">
                           {challenge.description}
                         </p>
@@ -529,24 +663,75 @@ export default function App() {
                 </div>
               )}
 
-              {challengeId && (
-                <div className="space-y-3">
-                  <p className="text-xs uppercase text-slate-500">Challenge Controls</p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" onClick={handleChallengeStart}>
-                      Start Challenge
-                    </Button>
-                    {[25, 50, 75, 100].map((value) => (
+              <div className="flex gap-3">
+                <input
+                  value={chatInput}
+                  onChange={(event) => setChatInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder={
+                    stage === "awaiting_crave"
+                      ? "Type your craving..."
+                      : stage === "awaiting_location"
+                      ? "If prompted, allow location or type lat, lng"
+                      : "Type your reply..."
+                  }
+                  className="w-full rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-200 outline-none focus:border-brand-500"
+                />
+                <Button size="lg" onClick={handleSend} disabled={loading}>
+                  {loading ? "..." : "Send"}
+                </Button>
+              </div>
+            </section>
+
+            <section className="flex flex-col gap-4 rounded-3xl border border-slate-800 bg-slate-950/60 p-6 shadow-soft">
+              <p className="text-xs uppercase text-slate-500">Challenge</p>
+
+              {createdChallenge ? (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-4">
+                    <p className="text-sm font-semibold text-white">{createdChallenge.challenge}</p>
+                    <p className="text-xs text-slate-400">
+                      Time limit: {createdChallenge.time_limit} minutes
+                    </p>
+                    <p className="text-xs text-slate-500">Status: {createdChallenge.status}</p>
+                  </div>
+
+                  <Button size="sm" onClick={handleChallengeStart} disabled={loading}>
+                    Start Challenge
+                  </Button>
+
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase text-slate-500">
+                      Completion Percentage
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        value={completionInput}
+                        onChange={(event) => setCompletionInput(event.target.value)}
+                        className="w-full rounded-2xl border border-slate-800 bg-slate-900/70 px-4 py-3 text-sm text-slate-200 outline-none focus:border-brand-500"
+                      />
                       <Button
-                        key={value}
                         size="sm"
                         variant="outline"
-                        onClick={() => handleChallengeComplete(value)}
+                        onClick={() => handleChallengeComplete(Number(completionInput))}
+                        disabled={loading}
                       >
-                        {value}% complete
+                        Submit
                       </Button>
-                    ))}
+                    </div>
                   </div>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-slate-800 p-4 text-sm text-slate-400">
+                  Create a challenge through the chat to see it here.
                 </div>
               )}
             </section>
