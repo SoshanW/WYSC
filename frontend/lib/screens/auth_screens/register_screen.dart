@@ -520,10 +520,18 @@ class _SignUpScreenState extends State<SignUpScreen>
                                         borderRadius: BorderRadius.circular(16),
                                       ),
                                     ),
-                                    icon: Image.network(
-                                      'https://upload.wikimedia.org/wikipedia/commons/c/c1/Google_%22G%22_logo.svg',
+                                    icon: Image.asset(
+                                      'assets/images/logo_google.png',
                                       width: 24,
                                       height: 24,
+                                      errorBuilder:
+                                          (context, error, stackTrace) {
+                                            return const Icon(
+                                              Icons.g_mobiledata,
+                                              size: 24,
+                                              color: Colors.red,
+                                            );
+                                          },
                                     ),
                                     label: Text(
                                       'Sign up with Google',
