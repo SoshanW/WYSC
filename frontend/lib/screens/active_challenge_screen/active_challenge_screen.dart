@@ -3,15 +3,18 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import '../../models/challenge_models.dart';
+import '../challenge_completed_screen/challenge_completed_screen.dart';
 
 class ActiveChallengeScreen extends StatefulWidget {
   final ChallengeData challenge;
   final String craving;
+  final String challengeId;
 
   const ActiveChallengeScreen({
     super.key,
     required this.challenge,
     required this.craving,
+    required this.challengeId,
   });
 
   @override
@@ -117,83 +120,16 @@ class _ActiveChallengeScreenState extends State<ActiveChallengeScreen>
     });
     _challengeTimer?.cancel();
     _confettiController.forward();
-    _showCompletionDialog();
-  }
 
-  void _showCompletionDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => WillPopScope(
-        onWillPop: () async => false,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-          contentPadding: const EdgeInsets.all(32),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF66BB6A).withOpacity(0.2),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.celebration_rounded,
-                  size: 45,
-                  color: Color(0xFF66BB6A),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Challenge Complete!',
-                style: TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF1B5E20),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'You burned ~${widget.challenge.caloriesBurned} calories!',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 16,
-                  color: const Color(0xFF1B5E20).withOpacity(0.7),
-                  height: 1.5,
-                ),
-              ),
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    Navigator.popUntil(context, (route) => route.isFirst);
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF66BB6A),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  child: const Text(
-                    'Awesome!',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
+    // Navigate to the completion/rating screen
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChallengeCompletionScreen(
+          challengeType: 'exercise',
+          foodName: widget.craving,
+          caloriesSaved: widget.challenge.caloriesBurned,
+          challengeId: widget.challengeId,
         ),
       ),
     );
@@ -687,10 +623,4 @@ class CircleProgressPainter extends CustomPainter {
   bool shouldRepaint(CircleProgressPainter oldDelegate) {
     return oldDelegate.progress != progress || oldDelegate.color != color;
   }
-}
-
-enum ChallengeDifficulty {
-  easy,
-  medium,
-  hard,
 }

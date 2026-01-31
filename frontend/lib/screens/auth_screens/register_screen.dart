@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import '../../services/api_service.dart';
+import '../../main_navigation.dart';
 
 // Sign Up Screen
 class SignUpScreen extends StatefulWidget {
@@ -74,13 +76,41 @@ class _SignUpScreenState extends State<SignUpScreen>
 
       setState(() => _isLoading = true);
 
-      // Simulate sign up delay
-      await Future.delayed(const Duration(seconds: 2));
+      try {
+        await ApiService().signup(
+          _emailController.text.trim(),
+          _passwordController.text,
+          _nameController.text.trim(),
+        );
 
-      setState(() => _isLoading = false);
+        if (!mounted) return;
 
-      // Navigate to onboarding
-      // Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => OnboardingFlow()));
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+          (route) => false,
+        );
+      } on ApiException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: const Color(0xFFEF5350),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Connection failed. Is the server running?'),
+            backgroundColor: Color(0xFFEF5350),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
     }
   }
 

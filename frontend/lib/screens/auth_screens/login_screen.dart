@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:frontend/main_navigation.dart';
+import '../../services/api_service.dart';
+import 'register_screen.dart';
 
 // Main Login Screen
 class LoginScreen extends StatefulWidget {
@@ -59,16 +61,39 @@ class _LoginScreenState extends State<LoginScreen>
     if (_formKey.currentState!.validate()) {
       setState(() => _isLoading = true);
 
-      // Simulate login delay
-      await Future.delayed(const Duration(seconds: 2));
+      try {
+        await ApiService().login(
+          _emailController.text.trim(),
+          _passwordController.text,
+        );
 
-      setState(() => _isLoading = false);
+        if (!mounted) return;
 
-      // Navigate to main app
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
-      );
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+        );
+      } on ApiException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: const Color(0xFFEF5350),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Connection failed. Is the server running?'),
+            backgroundColor: Color(0xFFEF5350),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -449,7 +474,12 @@ class _LoginScreenState extends State<LoginScreen>
                             ),
                             TextButton(
                               onPressed: () {
-                                // Navigate to sign up
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => const SignUpScreen(),
+                                  ),
+                                );
                               },
                               style: TextButton.styleFrom(
                                 padding: EdgeInsets.zero,

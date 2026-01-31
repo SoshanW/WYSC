@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:frontend/main_navigation.dart';
 import 'package:frontend/screens/splash_screen/splash_screen.dart';
+import 'package:frontend/screens/auth_screens/login_screen.dart';
+import 'package:frontend/services/api_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -24,7 +26,12 @@ class MyApp extends StatelessWidget {
           brightness: Brightness.light,
         ),
       ),
-      home: const SplashScreen(),
+      initialRoute: '/',
+      routes: {
+        '/': (context) => const SplashScreen(),
+        '/login': (context) => const LoginScreen(),
+        '/home': (context) => const MainNavigationScreen(),
+      },
     );
   }
 }

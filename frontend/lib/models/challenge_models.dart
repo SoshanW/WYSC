@@ -82,4 +82,43 @@ class ChallengeData {
       icon: IconData(json['icon'] as int, fontFamily: 'MaterialIcons'),
     );
   }
+
+  /// Create from backend API challenge format
+  factory ChallengeData.fromApiChallenge(Map<String, dynamic> json, int index) {
+    final difficultyStr = (json['difficulty'] as String? ?? 'medium').toLowerCase();
+    ChallengeDifficulty difficulty;
+    switch (difficultyStr) {
+      case 'easy':
+        difficulty = ChallengeDifficulty.easy;
+        break;
+      case 'hard':
+        difficulty = ChallengeDifficulty.hard;
+        break;
+      default:
+        difficulty = ChallengeDifficulty.medium;
+    }
+
+    final timeLimit = json['time_limit'] as int? ?? 15;
+    final description = json['description'] as String? ?? 'Complete this challenge';
+
+    // Pick an icon based on the index
+    const icons = [
+      Icons.fitness_center_rounded,
+      Icons.directions_run_rounded,
+      Icons.accessibility_new_rounded,
+      Icons.directions_walk_rounded,
+      Icons.sports_gymnastics,
+    ];
+
+    return ChallengeData(
+      id: '${index + 1}',
+      title: 'Challenge ${index + 1}',
+      description: description,
+      activities: [description],
+      timeEstimate: '$timeLimit minutes',
+      caloriesBurned: 0,
+      difficulty: difficulty,
+      icon: icons[index % icons.length],
+    );
+  }
 }

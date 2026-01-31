@@ -1,383 +1,506 @@
 import 'package:flutter/material.dart';
+import '../../services/api_service.dart';
+import '../options_screen/options_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
 
   @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin {
+  final TextEditingController _cravingController = TextEditingController();
+  late AnimationController _pulseController;
+  bool _isLoading = false;
+
+  String _userName = '';
+  int _totalPoints = 0;
+  String _rank = 'Bronze';
+  bool _profileLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    )..repeat(reverse: true);
+
+    _loadProfile();
+  }
+
+  @override
+  void dispose() {
+    _cravingController.dispose();
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final data = await ApiService().getProfile();
+      if (mounted) {
+        setState(() {
+          _userName = data['name'] as String? ?? ApiService().userName ?? 'there';
+          _totalPoints = data['total_points'] as int? ?? 0;
+          _rank = data['rank'] as String? ?? 'Bronze';
+          _profileLoaded = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _userName = ApiService().userName ?? 'there';
+          _profileLoaded = true;
+        });
+      }
+    }
+  }
+
+  void _findOptions() async {
+    if (_cravingController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please tell us what you\'re craving!'),
+          backgroundColor: Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final data = await ApiService().submitCrave(
+        _cravingController.text.trim(),
+        0.0,
+        0.0,
+      );
+
+      if (!mounted) return;
+
+      final sessionId = data['session_id'] as String;
+      final options = (data['options'] as List?)?.cast<String>() ?? [];
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => OptionsScreen(
+            sessionId: sessionId,
+            options: options,
+            craving: _cravingController.text.trim(),
+          ),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: const Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Connection failed. Is the server running?'),
+          backgroundColor: Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final isSmallScreen = size.height < 700;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Welcome Header
-              _buildWelcomeHeader(),
-              const SizedBox(height: 24),
-
-              // Daily Progress Card
-              _buildDailyProgressCard(),
-              const SizedBox(height: 24),
-
-              // Quick Actions
-              _buildQuickActions(),
-              const SizedBox(height: 24),
-
-              // Recent Achievements
-              _buildRecentAchievements(),
-              const SizedBox(height: 24),
-
-              // Today's Challenge
-              _buildTodaysChallenge(),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFFF8F9FA),
+              const Color(0xFFE8F5E9).withOpacity(0.3),
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildWelcomeHeader() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Good Morning,',
-          style: TextStyle(
-            fontSize: 16,
-            color: Colors.grey[600],
-            fontWeight: FontWeight.w400,
-          ),
-        ),
-        const Text(
-          'Arun Kumar',
-          style: TextStyle(
-            fontSize: 28,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF2E3A4B),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Ready to continue your wellness journey?',
-          style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildDailyProgressCard() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF66BB6A), Color(0xFF4CAF50)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF66BB6A).withOpacity(0.3),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Row(
+        child: SafeArea(
+          child: Stack(
             children: [
-              Icon(Icons.trending_up, color: Colors.white, size: 24),
-              SizedBox(width: 8),
-              Text(
-                'Today\'s Progress',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _buildProgressItem('Points', '125', '/ 200'),
-              _buildProgressItem('Streak', '7', ' days'),
-              _buildProgressItem('Level', '12', ''),
-            ],
-          ),
-          const SizedBox(height: 16),
-          LinearProgressIndicator(
-            value: 0.625,
-            backgroundColor: Colors.white.withOpacity(0.3),
-            valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-            minHeight: 6,
-            borderRadius: BorderRadius.circular(3),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '62% of daily goal completed',
-            style: TextStyle(color: Colors.white, fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildProgressItem(String label, String value, String suffix) {
-    return Column(
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              value,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 24,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            Text(
-              suffix,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-            ),
-          ],
-        ),
-        Text(
-          label,
-          style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildQuickActions() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Quick Actions',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF2E3A4B),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(
-              child: _buildActionCard(
-                'Start Chat',
-                Icons.chat_bubble_outline,
-                const Color(0xFF42A5F5),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildActionCard(
-                'View Stats',
-                Icons.analytics_outlined,
-                const Color(0xFFAB47BC),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildActionCard(String title, IconData icon, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.withOpacity(0.1)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: Color(0xFF2E3A4B),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRecentAchievements() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Recent Achievements',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF2E3A4B),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.grey.withOpacity(0.1)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFB74D).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Icons.emoji_events,
-                  color: Color(0xFFFFB74D),
-                  size: 24,
-                ),
-              ),
-              const SizedBox(width: 12),
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '7-Day Streak Master',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF2E3A4B),
+              // Animated background circles
+              ...List.generate(2, (index) {
+                return AnimatedBuilder(
+                  animation: _pulseController,
+                  builder: (context, child) {
+                    return Positioned(
+                      top: 100 + (index * 400.0),
+                      right: -150 + (index * 100.0),
+                      child: Opacity(
+                        opacity: 0.03 + (_pulseController.value * 0.02),
+                        child: Container(
+                          width: 350,
+                          height: 350,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              colors: [
+                                const Color(0xFF66BB6A).withOpacity(0.3),
+                                const Color(0xFF66BB6A).withOpacity(0.0),
+                              ],
+                            ),
+                          ),
+                        ),
                       ),
+                    );
+                  },
+                );
+              }),
+              // Main content
+              SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: size.height - 100),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(height: isSmallScreen ? 24 : 32),
+                        // Greeting & Stats Row
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0.0, end: 1.0),
+                          duration: const Duration(milliseconds: 800),
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, 20 * (1 - value)),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Hey ${_userName.isNotEmpty ? _userName : 'there'} ',
+                                style: TextStyle(
+                                  fontSize: isSmallScreen ? 32 : 38,
+                                  fontWeight: FontWeight.w800,
+                                  color: const Color(0xFF1B5E20),
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              // Stats badges
+                              Row(
+                                children: [
+                                  _buildStatBadge(
+                                    Icons.stars_rounded,
+                                    '$_totalPoints pts',
+                                    const Color(0xFFFFB300),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  _buildStatBadge(
+                                    Icons.emoji_events_rounded,
+                                    _rank,
+                                    const Color(0xFFFF6F00),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(height: isSmallScreen ? 12 : 16),
+                        // Subtitle
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0.0, end: 1.0),
+                          duration: const Duration(milliseconds: 1000),
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, 20 * (1 - value)),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Text(
+                            'What\'s on your mind today?',
+                            style: TextStyle(
+                              fontSize: isSmallScreen ? 16 : 18,
+                              color: const Color(0xFF1B5E20).withOpacity(0.6),
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: isSmallScreen ? 32 : 48),
+                        // Craving input card
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0.0, end: 1.0),
+                          duration: const Duration(milliseconds: 1200),
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: Transform.scale(
+                                scale: 0.9 + (0.1 * value),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(24),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF66BB6A).withOpacity(0.1),
+                                  blurRadius: 30,
+                                  offset: const Offset(0, 10),
+                                ),
+                              ],
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(24.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'What are you craving right now?',
+                                    style: TextStyle(
+                                      fontSize: isSmallScreen ? 20 : 24,
+                                      fontWeight: FontWeight.w700,
+                                      color: const Color(0xFF1B5E20),
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  // Text input
+                                  TextField(
+                                    controller: _cravingController,
+                                    maxLines: 3,
+                                    style: const TextStyle(
+                                      fontSize: 17,
+                                      color: Color(0xFF1B5E20),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                    decoration: InputDecoration(
+                                      hintText: 'e.g., Chocolate cake, Pizza, Ice cream...',
+                                      hintStyle: TextStyle(
+                                        color: const Color(0xFF1B5E20).withOpacity(0.3),
+                                        fontWeight: FontWeight.w400,
+                                      ),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                        borderSide: BorderSide(
+                                          color: const Color(0xFF66BB6A).withOpacity(0.2),
+                                          width: 2,
+                                        ),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                        borderSide: BorderSide(
+                                          color: const Color(0xFF66BB6A).withOpacity(0.2),
+                                          width: 2,
+                                        ),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(16),
+                                        borderSide: const BorderSide(
+                                          color: Color(0xFF66BB6A),
+                                          width: 2.5,
+                                        ),
+                                      ),
+                                      filled: true,
+                                      fillColor: const Color(0xFF66BB6A).withOpacity(0.05),
+                                      contentPadding: const EdgeInsets.all(16),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: isSmallScreen ? 24 : 36),
+                        // Find Options button
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0.0, end: 1.0),
+                          duration: const Duration(milliseconds: 1400),
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, 20 * (1 - value)),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: ElevatedButton(
+                              onPressed: _isLoading ? null : _findOptions,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF66BB6A),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                disabledBackgroundColor:
+                                    const Color(0xFF66BB6A).withOpacity(0.6),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                              ),
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.5,
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                          Colors.white,
+                                        ),
+                                      ),
+                                    )
+                                  : const Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(Icons.search_rounded, size: 22),
+                                        SizedBox(width: 10),
+                                        Text(
+                                          'Find Options',
+                                          style: TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: 0.3,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(height: isSmallScreen ? 32 : 48),
+                        // Quick suggestions
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0.0, end: 1.0),
+                          duration: const Duration(milliseconds: 1600),
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: child,
+                            );
+                          },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Quick suggestions',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF1B5E20).withOpacity(0.7),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                children: [
+                                  _buildSuggestionChip('Pizza'),
+                                  _buildSuggestionChip('Chocolate'),
+                                  _buildSuggestionChip('Ice Cream'),
+                                  _buildSuggestionChip('Burger'),
+                                  _buildSuggestionChip('Cake'),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 40),
+                      ],
                     ),
-                    Text(
-                      'Completed 7 consecutive days',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                '+50 pts',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.green[600],
+                  ),
                 ),
               ),
             ],
           ),
         ),
-      ],
+      ),
     );
   }
 
-  Widget _buildTodaysChallenge() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Today\'s Challenge',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF2E3A4B),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                const Color(0xFF7E57C2).withOpacity(0.1),
-                const Color(0xFF9575CD).withOpacity(0.1),
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+  Widget _buildStatBadge(IconData icon, String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+              color: color,
             ),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF7E57C2).withOpacity(0.2)),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Row(
-                children: [
-                  Icon(
-                    Icons.local_fire_department,
-                    color: Color(0xFF7E57C2),
-                    size: 24,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'Mindful Eating Challenge',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF2E3A4B),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Take a photo of your healthy meal and describe how it makes you feel.',
-                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () {},
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF7E57C2),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text(
-                  'Start Challenge',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-            ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestionChip(String label) {
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _cravingController.text = label;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: const Color(0xFF66BB6A).withOpacity(0.2),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF66BB6A).withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF1B5E20),
           ),
         ),
-      ],
+      ),
     );
   }
 }

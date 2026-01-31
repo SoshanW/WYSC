@@ -3,17 +3,20 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import '../../models/challenge_models.dart';
+import '../../services/api_service.dart';
 import '../active_challenge_screen/active_challenge_screen.dart';
 
 
 class ChallengeDetailsScreen extends StatefulWidget {
   final ChallengeData challenge;
   final String craving;
+  final String challengeId;
 
   const ChallengeDetailsScreen({
     Key? key,
     required this.challenge,
     required this.craving,
+    required this.challengeId,
   }) : super(key: key);
 
   @override
@@ -72,17 +75,48 @@ class _ChallengeDetailsScreenState extends State<ChallengeDetailsScreen>
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
-  void _startNow() {
-    // Navigate to active challenge screen
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ActiveChallengeScreen(
-          challenge: widget.challenge,
-          craving: widget.craving,
+  bool _isStarting = false;
+
+  void _startNow() async {
+    if (_isStarting) return;
+    setState(() => _isStarting = true);
+
+    try {
+      await ApiService().startChallenge(widget.challengeId);
+
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ActiveChallengeScreen(
+            challenge: widget.challenge,
+            craving: widget.craving,
+            challengeId: widget.challengeId,
+          ),
         ),
-      ),
-    );
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: const Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to start challenge. Please try again.'),
+          backgroundColor: Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isStarting = false);
+    }
   }
 
   void _startLater() {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import '../../services/api_service.dart';
 
 class ProfileStatsScreen extends StatefulWidget {
   const ProfileStatsScreen({Key? key}) : super(key: key);
@@ -12,6 +13,13 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
+
+  String _name = '';
+  String _email = '';
+  int _totalPoints = 0;
+  String _rank = 'Bronze';
+  List<dynamic> _sessions = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -26,12 +34,53 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
     );
 
     _animationController.forward();
+    _loadData();
   }
 
   @override
   void dispose() {
     _animationController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    try {
+      final profile = await ApiService().getProfile();
+      if (mounted) {
+        setState(() {
+          _name = profile['name'] as String? ?? ApiService().userName ?? 'User';
+          _email = profile['email'] as String? ?? ApiService().userEmail ?? '';
+          _totalPoints = profile['total_points'] as int? ?? 0;
+          _rank = profile['rank'] as String? ?? 'Bronze';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _name = ApiService().userName ?? 'User';
+          _email = ApiService().userEmail ?? '';
+        });
+      }
+    }
+
+    try {
+      final history = await ApiService().getHistory();
+      if (mounted) {
+        setState(() {
+          _sessions = history['sessions'] as List? ?? [];
+        });
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleLogout() async {
+    await ApiService().logout();
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
   }
 
   @override
@@ -90,7 +139,7 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                         SizedBox(height: isSmallScreen ? 12 : 16),
                         // Name
                         Text(
-                          'Arun Kumar',
+                          _name.isNotEmpty ? _name : 'User',
                           style: TextStyle(
                             fontSize: isSmallScreen ? 22 : 24,
                             fontWeight: FontWeight.w800,
@@ -100,7 +149,7 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                         const SizedBox(height: 4),
                         // Email
                         Text(
-                          'arun@cravebalance.com',
+                          _email,
                           style: TextStyle(
                             fontSize: isSmallScreen ? 13 : 14,
                             color: Colors.white.withOpacity(0.9),
@@ -115,11 +164,10 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
             ),
             actions: [
               IconButton(
-                onPressed: () {
-                  // Settings
-                },
-                icon: const Icon(Icons.settings_rounded),
+                onPressed: _handleLogout,
+                icon: const Icon(Icons.logout_rounded),
                 color: Colors.white,
+                tooltip: 'Logout',
               ),
             ],
           ),
@@ -142,8 +190,8 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                             icon: Icons.stars_rounded,
                             iconColor: const Color(0xFFFFB300),
                             title: 'Total Points',
-                            value: '2,450',
-                            subtitle: '+120 this week',
+                            value: '$_totalPoints',
+                            subtitle: '',
                             isSmallScreen: isSmallScreen,
                           ),
                         ),
@@ -154,8 +202,8 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                             icon: Icons.emoji_events_rounded,
                             iconColor: const Color(0xFFFF6F00),
                             title: 'Current Rank',
-                            value: 'Gold',
-                            subtitle: 'Top 15%',
+                            value: _rank,
+                            subtitle: '',
                             isSmallScreen: isSmallScreen,
                           ),
                         ),

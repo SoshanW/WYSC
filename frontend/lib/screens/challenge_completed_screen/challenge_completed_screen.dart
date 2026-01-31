@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import '../../services/api_service.dart';
 
 // Challenge Completion & Rating Screen
 class ChallengeCompletionScreen extends StatefulWidget {
-  final String challengeType; // 'exercise' or 'healthier'
+  final String challengeType;
   final String foodName;
   final int caloriesSaved;
+  final String challengeId;
 
   const ChallengeCompletionScreen({
     Key? key,
     required this.challengeType,
     required this.foodName,
     required this.caloriesSaved,
+    required this.challengeId,
   }) : super(key: key);
 
   @override
@@ -52,38 +55,55 @@ class _ChallengeCompletionScreenState extends State<ChallengeCompletionScreen>
   Future<void> _handleSubmit() async {
     setState(() => _isSubmitting = true);
 
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 1));
+    try {
+      final completionPercentage = (_rating * 10).toInt();
 
-    // Calculate points based on rating
-    final pointsEarned = _calculatePoints();
+      final data = await ApiService().completeChallenge(
+        widget.challengeId,
+        completionPercentage,
+      );
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    // Navigate to reward screen
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => ResultRewardScreen(
-          rating: _rating,
-          pointsEarned: pointsEarned,
-          challengeType: widget.challengeType,
-          foodName: widget.foodName,
-          caloriesSaved: widget.caloriesSaved,
-          userNote: _noteController.text,
+      final pointsEarned = data['points_earned'] as int? ?? 0;
+      final totalPoints = data['total_points'] as int? ?? 0;
+      final rank = data['rank'] as String? ?? 'Bronze';
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ResultRewardScreen(
+            rating: _rating,
+            pointsEarned: pointsEarned,
+            totalPoints: totalPoints,
+            rank: rank,
+            challengeType: widget.challengeType,
+            foodName: widget.foodName,
+            caloriesSaved: widget.caloriesSaved,
+          ),
         ),
-      ),
-    );
-  }
-
-  int _calculatePoints() {
-    // Base points: 50
-    // Rating multiplier: rating * 10
-    // Calorie bonus: caloriesSaved / 10
-    final basePoints = 50;
-    final ratingBonus = (_rating * 10).toInt();
-    final calorieBonus = (widget.caloriesSaved / 10).toInt();
-    return basePoints + ratingBonus + calorieBonus;
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: const Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to submit. Please try again.'),
+          backgroundColor: Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -150,9 +170,7 @@ class _ChallengeCompletionScreenState extends State<ChallengeCompletionScreen>
 
                 // Subtitle
                 Text(
-                  widget.challengeType == 'exercise'
-                      ? 'You earned your ${widget.foodName}!'
-                      : 'You chose the healthier option!',
+                  'You earned your ${widget.foodName}!',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: isSmallScreen ? 15 : 16,
@@ -192,9 +210,11 @@ class _ChallengeCompletionScreenState extends State<ChallengeCompletionScreen>
                       Row(
                         children: [
                           Text(
-                            '😢',
+                            '1',
                             style: TextStyle(
-                              fontSize: isSmallScreen ? 24 : 28,
+                              fontSize: isSmallScreen ? 16 : 18,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF1B5E20).withOpacity(0.4),
                             ),
                           ),
                           Expanded(
@@ -223,9 +243,11 @@ class _ChallengeCompletionScreenState extends State<ChallengeCompletionScreen>
                             ),
                           ),
                           Text(
-                            '😄',
+                            '10',
                             style: TextStyle(
-                              fontSize: isSmallScreen ? 24 : 28,
+                              fontSize: isSmallScreen ? 16 : 18,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF1B5E20).withOpacity(0.4),
                             ),
                           ),
                         ],
@@ -271,7 +293,7 @@ class _ChallengeCompletionScreenState extends State<ChallengeCompletionScreen>
                           fontSize: isSmallScreen ? 14 : 15,
                         ),
                         decoration: InputDecoration(
-                          hintText: 'How did you feel about this choice?',
+                          hintText: 'How did you feel about this challenge?',
                           hintStyle: TextStyle(
                             color: const Color(0xFF1B5E20).withOpacity(0.4),
                             fontSize: isSmallScreen ? 13 : 14,
@@ -332,23 +354,25 @@ class _ChallengeCompletionScreenState extends State<ChallengeCompletionScreen>
   }
 }
 
-// Result / Reward Screen (Dopamine boost!)
+// Result / Reward Screen
 class ResultRewardScreen extends StatefulWidget {
   final double rating;
   final int pointsEarned;
+  final int totalPoints;
+  final String rank;
   final String challengeType;
   final String foodName;
   final int caloriesSaved;
-  final String userNote;
 
   const ResultRewardScreen({
     Key? key,
     required this.rating,
     required this.pointsEarned,
+    required this.totalPoints,
+    required this.rank,
     required this.challengeType,
     required this.foodName,
     required this.caloriesSaved,
-    required this.userNote,
   }) : super(key: key);
 
   @override
@@ -361,12 +385,6 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
   late AnimationController _confettiController;
   late Animation<double> _scaleAnimation;
   late Animation<double> _fadeAnimation;
-
-  // Mock data - would come from backend
-  final int _totalPoints = 2450;
-  final int _previousPoints = 2350;
-  final String _currentRank = 'Gold';
-  final double _rankProgress = 0.48; // 48% to Platinum
 
   @override
   void initState() {
@@ -408,14 +426,11 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
 
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFF66BB6A),
-              const Color(0xFF4CAF50),
-            ],
+            colors: [Color(0xFF66BB6A), Color(0xFF4CAF50)],
           ),
         ),
         child: SafeArea(
@@ -426,7 +441,8 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
                 return AnimatedBuilder(
                   animation: _confettiController,
                   builder: (context, child) {
-                    final progress = (_confettiController.value + (index * 0.05)) % 1.0;
+                    final progress =
+                        (_confettiController.value + (index * 0.05)) % 1.0;
                     return Positioned(
                       left: (index % 5) * (size.width / 5) + 20,
                       top: -50 + (progress * size.height),
@@ -498,7 +514,7 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
                         child: Column(
                           children: [
                             Text(
-                              'Awesome! 🎉',
+                              'Awesome!',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: isSmallScreen ? 32 : 36,
@@ -508,9 +524,7 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              widget.challengeType == 'exercise'
-                                  ? 'You earned your ${widget.foodName}!'
-                                  : 'You chose the healthier path!',
+                              'You earned your ${widget.foodName}!',
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: isSmallScreen ? 16 : 18,
@@ -539,14 +553,13 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
                             ),
                             const SizedBox(height: 16),
 
-                            // Calories saved (if applicable)
                             if (widget.caloriesSaved > 0)
                               _buildStatCard(
                                 icon: Icons.local_fire_department_rounded,
                                 iconColor: const Color(0xFFFF9800),
-                                title: 'Calories Saved',
+                                title: 'Calories',
                                 value: '${widget.caloriesSaved}',
-                                subtitle: 'Great choice!',
+                                subtitle: 'Great effort!',
                                 isSmallScreen: isSmallScreen,
                               ),
                           ],
@@ -570,94 +583,49 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
                               ),
                             ],
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Current Rank',
-                                        style: TextStyle(
-                                          fontSize: isSmallScreen ? 13 : 14,
-                                          color: const Color(0xFF1B5E20)
-                                              .withOpacity(0.6),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        _currentRank,
-                                        style: TextStyle(
-                                          fontSize: isSmallScreen ? 22 : 24,
-                                          fontWeight: FontWeight.w800,
-                                          color: const Color(0xFFFFD700),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Text(
-                                        'Total Points',
-                                        style: TextStyle(
-                                          fontSize: isSmallScreen ? 13 : 14,
-                                          color: const Color(0xFF1B5E20)
-                                              .withOpacity(0.6),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '$_totalPoints',
-                                        style: TextStyle(
-                                          fontSize: isSmallScreen ? 22 : 24,
-                                          fontWeight: FontWeight.w800,
-                                          color: const Color(0xFF66BB6A),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              SizedBox(height: isSmallScreen ? 16 : 20),
-                              // Progress bar
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        'Progress to Platinum',
-                                        style: TextStyle(
-                                          fontSize: isSmallScreen ? 12 : 13,
-                                          fontWeight: FontWeight.w600,
-                                          color: const Color(0xFF1B5E20),
-                                        ),
-                                      ),
-                                      Text(
-                                        '${(_rankProgress * 100).toInt()}%',
-                                        style: TextStyle(
-                                          fontSize: isSmallScreen ? 12 : 13,
-                                          fontWeight: FontWeight.w700,
-                                          color: const Color(0xFF66BB6A),
-                                        ),
-                                      ),
-                                    ],
+                                  Text(
+                                    'Current Rank',
+                                    style: TextStyle(
+                                      fontSize: isSmallScreen ? 13 : 14,
+                                      color: const Color(0xFF1B5E20)
+                                          .withOpacity(0.6),
+                                    ),
                                   ),
-                                  const SizedBox(height: 10),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: LinearProgressIndicator(
-                                      value: _rankProgress,
-                                      minHeight: 12,
-                                      backgroundColor: Colors.grey.shade200,
-                                      valueColor: const AlwaysStoppedAnimation<Color>(
-                                        Color(0xFF66BB6A),
-                                      ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    widget.rank,
+                                    style: TextStyle(
+                                      fontSize: isSmallScreen ? 22 : 24,
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFFFFD700),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    'Total Points',
+                                    style: TextStyle(
+                                      fontSize: isSmallScreen ? 13 : 14,
+                                      color: const Color(0xFF1B5E20)
+                                          .withOpacity(0.6),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${widget.totalPoints}',
+                                    style: TextStyle(
+                                      fontSize: isSmallScreen ? 22 : 24,
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFF66BB6A),
                                     ),
                                   ),
                                 ],
@@ -671,69 +639,30 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
                       // Action buttons
                       FadeTransition(
                         opacity: _fadeAnimation,
-                        child: Column(
-                          children: [
-                            SizedBox(
-                              width: double.infinity,
-                              height: isSmallScreen ? 52 : 56,
-                              child: ElevatedButton(
-                                onPressed: () {
-                                  // Navigate to stats
-                                  Navigator.pop(context);
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.white,
-                                  foregroundColor: const Color(0xFF66BB6A),
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(Icons.bar_chart_rounded),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'View Stats',
-                                      style: TextStyle(
-                                        fontSize: isSmallScreen ? 16 : 17,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
+                        child: SizedBox(
+                          width: double.infinity,
+                          height: isSmallScreen ? 52 : 56,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              Navigator.of(context)
+                                  .popUntil((route) => route.isFirst);
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: const Color(0xFF66BB6A),
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
                               ),
                             ),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              width: double.infinity,
-                              height: isSmallScreen ? 52 : 56,
-                              child: OutlinedButton(
-                                onPressed: () {
-                                  // End session - go back to home
-                                  Navigator.of(context).popUntil((route) => route.isFirst);
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: const BorderSide(
-                                    color: Colors.white,
-                                    width: 2,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(16),
-                                  ),
-                                ),
-                                child: Text(
-                                  'End Session',
-                                  style: TextStyle(
-                                    fontSize: isSmallScreen ? 16 : 17,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
+                            child: Text(
+                              'Back to Home',
+                              style: TextStyle(
+                                fontSize: isSmallScreen ? 16 : 17,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
-                          ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 20),
