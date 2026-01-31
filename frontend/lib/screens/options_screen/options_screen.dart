@@ -5,7 +5,7 @@ import '../solo_challenge_suggestions_screen/solo_challenge_suggestions_screen.d
 
 class OptionsScreen extends StatefulWidget {
   final String sessionId;
-  final List<String> options;
+  final List<Map<String, dynamic>> options;
   final String craving;
 
   const OptionsScreen({
@@ -31,9 +31,10 @@ class _OptionsScreenState extends State<OptionsScreen> {
 
     try {
       // Step 1: Select the option
+      final optionName = widget.options[index]['option'] as String? ?? '';
       final selectData = await ApiService().selectOption(
         widget.sessionId,
-        widget.options[index],
+        optionName,
       );
 
       final estimatedCalories = selectData['estimated_calories'] as int? ?? 0;
@@ -169,17 +170,41 @@ class _OptionsScreenState extends State<OptionsScreen> {
               ),
               // Options list
               Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                  itemCount: widget.options.length,
-                  itemBuilder: (context, index) {
-                    return _buildOptionCard(
-                      widget.options[index],
-                      index,
-                      isSmallScreen,
-                    );
-                  },
-                ),
+                child: widget.options.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.search_off_rounded,
+                                  size: 64,
+                                  color: const Color(0xFF66BB6A).withOpacity(0.4)),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No options found. Try a different craving!',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: const Color(0xFF1B5E20).withOpacity(0.6),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                        itemCount: widget.options.length,
+                        itemBuilder: (context, index) {
+                          return _buildOptionCard(
+                            widget.options[index],
+                            index,
+                            isSmallScreen,
+                          );
+                        },
+                      ),
               ),
             ],
           ),
@@ -188,9 +213,14 @@ class _OptionsScreenState extends State<OptionsScreen> {
     );
   }
 
-  Widget _buildOptionCard(String option, int index, bool isSmallScreen) {
+  Widget _buildOptionCard(
+      Map<String, dynamic> optionData, int index, bool isSmallScreen) {
     final isSelected = _selectedIndex == index;
     final isProcessing = _isLoading && isSelected;
+
+    final optionName = optionData['option'] as String? ?? 'Option ${index + 1}';
+    final storeName = optionData['store'] as String? ?? '';
+    final description = optionData['description'] as String? ?? '';
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.0, end: 1.0),
@@ -251,14 +281,52 @@ class _OptionsScreenState extends State<OptionsScreen> {
               ),
               const SizedBox(width: 16),
               Expanded(
-                child: Text(
-                  option,
-                  style: TextStyle(
-                    fontSize: isSmallScreen ? 15 : 16,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF1B5E20),
-                    height: 1.4,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      optionName,
+                      style: TextStyle(
+                        fontSize: isSmallScreen ? 15 : 16,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF1B5E20),
+                        height: 1.3,
+                      ),
+                    ),
+                    if (storeName.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Icon(Icons.store_rounded,
+                              size: 14,
+                              color: const Color(0xFF66BB6A).withOpacity(0.7)),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              storeName,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF66BB6A),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (description.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        description,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w400,
+                          color: const Color(0xFF1B5E20).withOpacity(0.6),
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               const SizedBox(width: 12),

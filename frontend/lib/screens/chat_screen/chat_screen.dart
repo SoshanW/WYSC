@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+import 'package:geolocator/geolocator.dart';
 
-import '../solo_challenge_suggestions_screen/solo_challenge_suggestions_screen.dart';
+import '../../services/api_service.dart';
+import '../options_screen/options_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String userName;
@@ -57,7 +59,7 @@ class _ChatScreenState extends State<ChatScreen>
     }
   }
 
-  void _findOptions() {
+  void _findOptions() async {
     if (_cravingController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -73,26 +75,75 @@ class _ChatScreenState extends State<ChatScreen>
       _isLoading = true;
     });
 
-    // TODO: Implement LLM + location-based reasoning
-    // For now, navigate to solo challenge suggestions after delay
-    Future.delayed(const Duration(seconds: 2), () {
+    try {
+      // Get user's current location
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          throw Exception('Location permission denied');
+        }
+      }
+      
+      if (permission == LocationPermission.deniedForever) {
+        throw Exception('Location permissions are permanently denied');
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      );
+
+      // Call the API to get craving options
+      final response = await ApiService().submitCrave(
+        _cravingController.text.trim(),
+        position.latitude,
+        position.longitude,
+      );
+
+      if (!mounted) return;
+
+      final sessionId = response['session_id'] as String? ?? '';
+      final optionsList = (response['options'] as List?) ?? [];
+      final options = optionsList
+          .map((e) => e as Map<String, dynamic>)
+          .toList();
+
+      // Navigate to options screen
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => OptionsScreen(
+            sessionId: sessionId,
+            options: options,
+            craving: _cravingController.text.trim(),
+          ),
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: const Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: const Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
       if (mounted) {
         setState(() {
           _isLoading = false;
         });
-
-        // Navigate to solo challenge suggestions screen
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => SoloChallengeSuggestionsScreen(
-              craving: _cravingController.text,
-              estimatedCalories: 500, // TODO: Get from LLM
-            ),
-          ),
-        );
       }
-    });
+    }
   }
 
   @override

@@ -42,8 +42,16 @@ class _HomeScreenState extends State<HomeScreen>
     try {
       final data = await ApiService().getProfile();
       if (mounted) {
+        final profileName = data['name'] as String?;
+        final loginName = ApiService().userName;
+        // Use profile name if available, otherwise the name from login
+        final name = (profileName != null && profileName.isNotEmpty)
+            ? profileName
+            : (loginName != null && loginName.isNotEmpty)
+                ? loginName
+                : 'there';
         setState(() {
-          _userName = data['name'] as String? ?? ApiService().userName ?? 'there';
+          _userName = name;
           _totalPoints = data['total_points'] as int? ?? 0;
           _rank = data['rank'] as String? ?? 'Bronze';
           _profileLoaded = true;
@@ -51,8 +59,11 @@ class _HomeScreenState extends State<HomeScreen>
       }
     } catch (e) {
       if (mounted) {
+        final loginName = ApiService().userName;
         setState(() {
-          _userName = ApiService().userName ?? 'there';
+          _userName = (loginName != null && loginName.isNotEmpty)
+              ? loginName
+              : 'there';
           _profileLoaded = true;
         });
       }
@@ -85,7 +96,12 @@ class _HomeScreenState extends State<HomeScreen>
       if (!mounted) return;
 
       final sessionId = data['session_id'] as String;
-      final options = (data['options'] as List?)?.cast<String>() ?? [];
+      final rawOptions = (data['options'] as List?) ?? [];
+      final options = rawOptions
+          .map((o) => o is Map<String, dynamic>
+              ? o
+              : <String, dynamic>{'option': o.toString()})
+          .toList();
 
       Navigator.push(
         context,
