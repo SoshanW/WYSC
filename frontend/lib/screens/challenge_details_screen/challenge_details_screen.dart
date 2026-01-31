@@ -120,7 +120,7 @@ class _ChallengeDetailsScreenState extends State<ChallengeDetailsScreen>
   }
 
   void _startLater() {
-    // TODO: Schedule notification and save challenge
+    // Show confirmation and navigate to home
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -145,8 +145,9 @@ class _ChallengeDetailsScreenState extends State<ChallengeDetailsScreen>
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
+              Navigator.pop(context); // Close dialog
+              // Navigate back to home (pop all screens until the first one)
+              Navigator.of(context).popUntil((route) => route.isFirst);
             },
             child: const Text(
               'Got it',

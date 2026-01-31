@@ -34,10 +34,13 @@ class ApiService {
       };
 
   Future<Map<String, dynamic>> _handleResponse(http.Response response) async {
+    print('Raw response body: ${response.body}');
     final body = jsonDecode(response.body) as Map<String, dynamic>;
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      return body['data'] as Map<String, dynamic>? ?? body;
+      final data = body['data'] as Map<String, dynamic>?;
+      print('Parsed data: $data');
+      return data ?? body;
     }
 
     final error = body['error'] ?? 'Something went wrong';
@@ -234,6 +237,48 @@ class ApiService {
     final response = await http.get(
       Uri.parse('$baseUrl/user/history'),
       headers: _headers,
+    );
+    return _handleResponse(response);
+  }
+
+  // ─── Regenerate Endpoints ─────────────────────────────
+
+  Future<Map<String, dynamic>> regenerateCraveOptions(String sessionId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/session/crave/regenerate'),
+      headers: _headers,
+      body: jsonEncode({'session_id': sessionId}),
+    );
+    return _handleResponse(response);
+  }
+
+  Future<Map<String, dynamic>> regenerateChallenges(String sessionId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/session/challenges/regenerate'),
+      headers: _headers,
+      body: jsonEncode({'session_id': sessionId}),
+    );
+    return _handleResponse(response);
+  }
+
+  Future<Map<String, dynamic>> regenerateHealthy(String sessionId) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/session/healthy/regenerate'),
+      headers: _headers,
+      body: jsonEncode({'session_id': sessionId}),
+    );
+    return _handleResponse(response);
+  }
+
+  Future<Map<String, dynamic>> acceptHealthy(
+      String sessionId, String selectedSuggestion) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/session/healthy/accept'),
+      headers: _headers,
+      body: jsonEncode({
+        'session_id': sessionId,
+        'selected_suggestion': selectedSuggestion,
+      }),
     );
     return _handleResponse(response);
   }

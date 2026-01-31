@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../services/api_service.dart';
 import '../options_screen/options_screen.dart';
 
@@ -87,21 +88,60 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     try {
+      // Get user's current location
+      double latitude = 6.9271;  // Default to Colombo, Sri Lanka
+      double longitude = 79.8612;
+      
+      try {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        
+        if (permission == LocationPermission.whileInUse || 
+            permission == LocationPermission.always) {
+          final position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.medium,
+          );
+          latitude = position.latitude;
+          longitude = position.longitude;
+        }
+      } catch (locError) {
+        print('Location error (using default): $locError');
+      }
+
+      print('Submitting crave with lat: $latitude, lng: $longitude');
+      
       final data = await ApiService().submitCrave(
         _cravingController.text.trim(),
-        0.0,
-        0.0,
+        latitude,
+        longitude,
       );
 
       if (!mounted) return;
 
-      final sessionId = data['session_id'] as String;
-      final rawOptions = (data['options'] as List?) ?? [];
-      final options = rawOptions
-          .map((o) => o is Map<String, dynamic>
-              ? o
-              : <String, dynamic>{'option': o.toString()})
-          .toList();
+      print('API Response data: $data');
+
+      final sessionId = data['session_id'] as String? ?? '';
+      final rawOptions = data['options'];
+      
+      print('Raw options type: ${rawOptions.runtimeType}');
+      print('Raw options value: $rawOptions');
+      
+      List<Map<String, dynamic>> options = [];
+      if (rawOptions != null && rawOptions is List) {
+        for (var o in rawOptions) {
+          if (o is Map<String, dynamic>) {
+            options.add(o);
+          } else if (o is Map) {
+            options.add(Map<String, dynamic>.from(o));
+          } else {
+            options.add(<String, dynamic>{'option': o.toString()});
+          }
+        }
+      }
+      
+      print('Parsed options: $options');
 
       Navigator.push(
         context,
@@ -124,10 +164,11 @@ class _HomeScreenState extends State<HomeScreen>
       );
     } catch (e) {
       if (!mounted) return;
+      print('Error in _findOptions: $e');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Connection failed. Is the server running?'),
-          backgroundColor: Color(0xFFEF5350),
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: const Color(0xFFEF5350),
           behavior: SnackBarBehavior.floating,
         ),
       );

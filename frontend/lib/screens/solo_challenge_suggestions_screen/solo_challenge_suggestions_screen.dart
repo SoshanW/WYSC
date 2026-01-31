@@ -9,6 +9,7 @@ class SoloChallengeSuggestionsScreen extends StatefulWidget {
   final int estimatedCalories;
   final String sessionId;
   final List<ChallengeData> challenges;
+  final int regenerationsRemaining;
 
   const SoloChallengeSuggestionsScreen({
     Key? key,
@@ -16,6 +17,7 @@ class SoloChallengeSuggestionsScreen extends StatefulWidget {
     this.estimatedCalories = 0,
     required this.sessionId,
     required this.challenges,
+    this.regenerationsRemaining = 3,
   }) : super(key: key);
 
   @override
@@ -29,6 +31,9 @@ class _SoloChallengeSuggestionsScreenState
   late AnimationController _shimmerController;
   int? _selectedChallengeIndex;
   bool _isConfirming = false;
+  bool _isRegenerating = false;
+  late List<ChallengeData> _challenges;
+  late int _regenerationsRemaining;
 
   @override
   void initState() {
@@ -37,6 +42,8 @@ class _SoloChallengeSuggestionsScreenState
       vsync: this,
       duration: const Duration(milliseconds: 2000),
     )..repeat();
+    _challenges = List.from(widget.challenges);
+    _regenerationsRemaining = widget.regenerationsRemaining;
   }
 
   @override
@@ -49,6 +56,77 @@ class _SoloChallengeSuggestionsScreenState
     setState(() {
       _selectedChallengeIndex = index;
     });
+  }
+
+  Future<void> _regenerateChallenges() async {
+    if (_regenerationsRemaining <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No more re-prompts available!'),
+          backgroundColor: Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isRegenerating = true;
+    });
+
+    try {
+      final data = await ApiService().regenerateChallenges(widget.sessionId);
+
+      if (!mounted) return;
+
+      final challengesList = (data['challenges'] as List?) ?? [];
+      final newChallenges = challengesList
+          .asMap()
+          .entries
+          .map((e) => ChallengeData.fromApiChallenge(
+                e.value as Map<String, dynamic>,
+                e.key,
+              ))
+          .toList();
+
+      setState(() {
+        _challenges = newChallenges;
+        _regenerationsRemaining = data['regenerations_remaining'] as int? ?? 0;
+        _selectedChallengeIndex = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('New challenges loaded! 💪'),
+          backgroundColor: Color(0xFF66BB6A),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: const Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to get new challenges'),
+          backgroundColor: Color(0xFFEF5350),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isRegenerating = false;
+        });
+      }
+    }
   }
 
   Future<void> _confirmChallenge() async {
@@ -66,7 +144,7 @@ class _SoloChallengeSuggestionsScreenState
     setState(() => _isConfirming = true);
 
     try {
-      final challenge = widget.challenges[_selectedChallengeIndex!];
+      final challenge = _challenges[_selectedChallengeIndex!];
 
       final data = await ApiService().selectChallenge(
         widget.sessionId,
@@ -172,25 +250,85 @@ class _SoloChallengeSuggestionsScreenState
                   ],
                 ),
               ),
-              // Title
+              // Title & Regenerate button
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Choose Your Challenge',
-                    style: TextStyle(
-                      fontSize: isSmallScreen ? 26 : 30,
-                      fontWeight: FontWeight.w800,
-                      color: const Color(0xFF1B5E20),
-                      letterSpacing: -0.5,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Choose Your Challenge',
+                        style: TextStyle(
+                          fontSize: isSmallScreen ? 24 : 28,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF1B5E20),
+                          letterSpacing: -0.5,
+                        ),
+                      ),
                     ),
-                  ),
+                    // Regenerate button
+                    GestureDetector(
+                      onTap: _isRegenerating || _regenerationsRemaining <= 0
+                          ? null
+                          : _regenerateChallenges,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _regenerationsRemaining > 0
+                              ? const Color(0xFF66BB6A).withOpacity(0.15)
+                              : Colors.grey.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _regenerationsRemaining > 0
+                                ? const Color(0xFF66BB6A).withOpacity(0.3)
+                                : Colors.grey.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_isRegenerating)
+                              const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Color(0xFF66BB6A),
+                                ),
+                              )
+                            else
+                              Icon(
+                                Icons.refresh_rounded,
+                                size: 18,
+                                color: _regenerationsRemaining > 0
+                                    ? const Color(0xFF66BB6A)
+                                    : Colors.grey,
+                              ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '$_regenerationsRemaining left',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: _regenerationsRemaining > 0
+                                    ? const Color(0xFF66BB6A)
+                                    : Colors.grey,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               // Challenge list
               Expanded(
-                child: widget.challenges.isEmpty
+                child: _challenges.isEmpty
                     ? Center(
                         child: Text(
                           'No challenges available',
@@ -202,10 +340,10 @@ class _SoloChallengeSuggestionsScreenState
                       )
                     : ListView.builder(
                         padding: const EdgeInsets.fromLTRB(24, 0, 24, 100),
-                        itemCount: widget.challenges.length,
+                        itemCount: _challenges.length,
                         itemBuilder: (context, index) {
                           return _buildChallengeCard(
-                            widget.challenges[index],
+                            _challenges[index],
                             index,
                             isSmallScreen,
                           );

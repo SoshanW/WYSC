@@ -102,11 +102,26 @@ class _ChatScreenState extends State<ChatScreen>
 
       if (!mounted) return;
 
+      // Debug: print the response to see what we're getting
+      print('API Response: $response');
+
       final sessionId = response['session_id'] as String? ?? '';
-      final optionsList = (response['options'] as List?) ?? [];
-      final options = optionsList
-          .map((e) => e as Map<String, dynamic>)
-          .toList();
+      
+      // Handle options - they might be nested or in a different format
+      List<Map<String, dynamic>> options = [];
+      final rawOptions = response['options'];
+      
+      if (rawOptions != null && rawOptions is List) {
+        for (var item in rawOptions) {
+          if (item is Map<String, dynamic>) {
+            options.add(item);
+          } else if (item is Map) {
+            options.add(Map<String, dynamic>.from(item));
+          }
+        }
+      }
+      
+      print('Parsed options: $options');
 
       // Navigate to options screen
       Navigator.push(
