@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../../services/api_service.dart';
+import '../../utils/rank_utils.dart';
 
 // Challenge Completion & Rating Screen
 class ChallengeCompletionScreen extends StatefulWidget {
@@ -197,7 +198,7 @@ class _ChallengeCompletionScreenState extends State<ChallengeCompletionScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'How did it feel?',
+                        'Rate your progress?',
                         style: TextStyle(
                           fontSize: isSmallScreen ? 17 : 18,
                           fontWeight: FontWeight.w700,
@@ -547,8 +548,8 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
                               icon: Icons.stars_rounded,
                               iconColor: const Color(0xFFFFB300),
                               title: 'Points Earned',
-                              value: '+${widget.pointsEarned}',
-                              subtitle: 'Rating: ${widget.rating.toInt()}/10',
+                              value: widget.pointsEarned >= 0 ? '+${widget.pointsEarned}' : '${widget.pointsEarned}',
+                              subtitle: 'Progress: ${widget.rating.toInt()}/10',
                               isSmallScreen: isSmallScreen,
                             ),
                             const SizedBox(height: 16),
@@ -603,7 +604,7 @@ class _ResultRewardScreenState extends State<ResultRewardScreen>
                                     style: TextStyle(
                                       fontSize: isSmallScreen ? 22 : 24,
                                       fontWeight: FontWeight.w800,
-                                      color: const Color(0xFFFFD700),
+                                      color: getRankColor(widget.rank),
                                     ),
                                   ),
                                 ],

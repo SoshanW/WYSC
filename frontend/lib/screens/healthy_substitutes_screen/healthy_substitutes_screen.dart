@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/api_service.dart';
+import '../../utils/rank_utils.dart';
 
 class HealthySubstitutesScreen extends StatefulWidget {
   final String sessionId;
@@ -216,16 +217,16 @@ class _HealthySubstitutesScreenState extends State<HealthySubstitutesScreen> {
                       ),
                       Column(
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.military_tech_rounded,
-                            color: Color(0xFFFFB300),
+                            color: getRankIconColor(rank),
                             size: 24,
                           ),
                           Text(
                             rank,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: Color(0xFF1B5E20),
+                              color: getRankColor(rank),
                               fontWeight: FontWeight.w600,
                             ),
                           ),

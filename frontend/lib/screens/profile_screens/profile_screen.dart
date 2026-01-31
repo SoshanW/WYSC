@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import '../../services/api_service.dart';
+import '../../utils/rank_utils.dart';
 
 class ProfileStatsScreen extends StatefulWidget {
   const ProfileStatsScreen({Key? key}) : super(key: key);
@@ -94,7 +95,7 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
         slivers: [
           // App Bar with profile header
           SliverAppBar(
-            expandedHeight: isSmallScreen ? 200 : 240,
+            expandedHeight: isSmallScreen ? 220 : 260,
             floating: false,
             pinned: true,
             backgroundColor: const Color(0xFF66BB6A),
@@ -111,13 +112,13 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24.0),
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        SizedBox(height: isSmallScreen ? 40 : 60),
+                        const SizedBox(height: 20),
                         // Profile picture
                         Container(
-                          width: isSmallScreen ? 80 : 90,
-                          height: isSmallScreen ? 80 : 90,
+                          width: isSmallScreen ? 70 : 80,
+                          height: isSmallScreen ? 70 : 80,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: Colors.white,
@@ -132,16 +133,16 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                           ),
                           child: const Icon(
                             Icons.person_rounded,
-                            size: 45,
+                            size: 40,
                             color: Color(0xFF66BB6A),
                           ),
                         ),
-                        SizedBox(height: isSmallScreen ? 12 : 16),
+                        SizedBox(height: isSmallScreen ? 10 : 14),
                         // Name
                         Text(
                           _name.isNotEmpty ? _name : 'User',
                           style: TextStyle(
-                            fontSize: isSmallScreen ? 22 : 24,
+                            fontSize: isSmallScreen ? 20 : 22,
                             fontWeight: FontWeight.w800,
                             color: Colors.white,
                           ),
@@ -151,11 +152,11 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                         Text(
                           _email,
                           style: TextStyle(
-                            fontSize: isSmallScreen ? 13 : 14,
+                            fontSize: isSmallScreen ? 12 : 13,
                             color: Colors.white.withOpacity(0.9),
                           ),
                         ),
-                        SizedBox(height: isSmallScreen ? 20 : 24),
+                        SizedBox(height: isSmallScreen ? 16 : 20),
                       ],
                     ),
                   ),
@@ -200,9 +201,10 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                         Expanded(
                           child: _buildStatCard(
                             icon: Icons.emoji_events_rounded,
-                            iconColor: const Color(0xFFFF6F00),
+                            iconColor: getRankIconColor(_rank),
                             title: 'Current Rank',
                             value: _rank,
+                            valueColor: getRankColor(_rank),
                             subtitle: '',
                             isSmallScreen: isSmallScreen,
                           ),
@@ -229,7 +231,7 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                             isSmallScreen: isSmallScreen,
                           ),
                         ),
-                        SizedBox(width: isSmallScreen ? 12 : 16),
+                        SizedBox(width: isSmallScreen ? 8 : 10),
                         Expanded(
                           child: _buildMiniStatCard(
                             icon: Icons.check_circle_rounded,
@@ -239,7 +241,7 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
                             isSmallScreen: isSmallScreen,
                           ),
                         ),
-                        SizedBox(width: isSmallScreen ? 12 : 16),
+                        SizedBox(width: isSmallScreen ? 8 : 10),
                         Expanded(
                           child: _buildMiniStatCard(
                             icon: Icons.local_fire_department_rounded,
@@ -297,6 +299,7 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
     required String value,
     required String subtitle,
     required bool isSmallScreen,
+    Color? valueColor,
   }) {
     return Container(
       padding: EdgeInsets.all(isSmallScreen ? 16 : 20),
@@ -330,14 +333,19 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
               color: const Color(0xFF1B5E20).withOpacity(0.6),
               fontWeight: FontWeight.w500,
             ),
+            overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: isSmallScreen ? 26 : 28,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF1B5E20),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: isSmallScreen ? 24 : 26,
+                fontWeight: FontWeight.w800,
+                color: valueColor ?? const Color(0xFF1B5E20),
+              ),
             ),
           ),
           const SizedBox(height: 4),
@@ -348,6 +356,7 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
               color: const Color(0xFF66BB6A),
               fontWeight: FontWeight.w600,
             ),
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -448,12 +457,12 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
   }) {
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: isSmallScreen ? 12 : 16,
-        vertical: isSmallScreen ? 16 : 20,
+        horizontal: isSmallScreen ? 6 : 10,
+        vertical: isSmallScreen ? 12 : 16,
       ),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.05),
@@ -463,24 +472,32 @@ class _ProfileStatsScreenState extends State<ProfileStatsScreen>
         ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: color, size: isSmallScreen ? 28 : 32),
-          SizedBox(height: isSmallScreen ? 8 : 10),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: isSmallScreen ? 20 : 22,
-              fontWeight: FontWeight.w800,
-              color: const Color(0xFF1B5E20),
+          Icon(icon, color: color, size: isSmallScreen ? 20 : 24),
+          SizedBox(height: isSmallScreen ? 4 : 6),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: isSmallScreen ? 16 : 18,
+                fontWeight: FontWeight.w800,
+                color: const Color(0xFF1B5E20),
+              ),
             ),
           ),
           const SizedBox(height: 2),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: isSmallScreen ? 11 : 12,
-              color: const Color(0xFF1B5E20).withOpacity(0.6),
-              fontWeight: FontWeight.w500,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              title,
+              style: TextStyle(
+                fontSize: isSmallScreen ? 9 : 10,
+                color: const Color(0xFF1B5E20).withOpacity(0.6),
+                fontWeight: FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
